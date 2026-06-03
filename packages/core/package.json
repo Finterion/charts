@@ -1,0 +1,25 @@
+{
+  "name": "@finterion/charts-core",
+  "version": "0.0.1",
+  "description": "Framework-agnostic charting engine — Canvas 2D, typed-array buffers, layered renderers.",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "clean": "rm -rf dist .turbo"
+  },
+  "publishConfig": { "access": "public" }
+}

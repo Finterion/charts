@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.turbo/
+.DS_Store
+*.log
+.vite/
+
+# Python (sample data scripts use a venv locally)
+.venv*/
+__pycache__/
+*.pyc

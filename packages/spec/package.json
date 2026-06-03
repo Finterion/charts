@@ -1,0 +1,27 @@
+{
+  "name": "@finterion/charts-spec",
+  "version": "0.0.1",
+  "description": "JSON-only ChartSpec schema, validator and compiler for Finterion Charts. Designed for LLM agents and forum/iframe embedding.",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "clean": "rm -rf dist .turbo"
+  },
+  "dependencies": {
+    "@finterion/charts-core": "workspace:*"
+  },
+  "publishConfig": { "access": "public" }
+}
