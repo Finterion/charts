@@ -1,7 +1,17 @@
 {
   "name": "@finterion/charts-react",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "React bindings for Finterion Charts.",
+  "keywords": ["chart", "charts", "react", "canvas", "finance", "trading", "candlestick"],
+  "license": "MIT",
+  "author": "Finterion",
+  "homepage": "https://github.com/Finterion/charts/tree/main/packages/react",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Finterion/charts.git",
+    "directory": "packages/react"
+  },
+  "bugs": { "url": "https://github.com/Finterion/charts/issues" },
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://unpkg.com/@changesets/config@3.0.0/schema.json",
+  "changelog": ["@changesets/changelog-github", { "repo": "Finterion/charts" }],
+  "commit": false,
+  "fixed": [],
+  "linked": [["@finterion/charts-core", "@finterion/charts-react", "@finterion/charts-spec"]],
+  "access": "public",
+  "baseBranch": "main",
+  "updateInternalDependencies": "patch",
+  "ignore": ["@finterion/charts-playground", "@finterion/charts-embed-app"]
+}

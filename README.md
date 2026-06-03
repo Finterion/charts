@@ -113,6 +113,38 @@ cd apps/playground && pnpm exec tsc --noEmit
 
 ---
 
+## Releasing
+
+Versioning is managed with [Changesets](https://github.com/changesets/changesets).
+
+1. After making a change, add a changeset:
+
+   ```bash
+   pnpm changeset
+   ```
+
+   Pick the affected packages and a `patch` / `minor` / `major` bump. Commit
+   the resulting markdown file in `.changeset/`.
+
+2. When merged to `main`, the [`release` workflow](.github/workflows/release.yml)
+   opens a "Version Packages" PR that bumps versions and updates `CHANGELOG.md`.
+
+3. Merging that PR triggers `pnpm release`, which builds and publishes to npm.
+
+The three publishable packages (`@finterion/charts-core`, `@finterion/charts-react`,
+`@finterion/charts-spec`) are versioned together (`linked`); the playground and
+embed apps are `private` and never published.
+
+### One-time setup before the first release
+
+- Add `NPM_TOKEN` (an automation token with `publish` rights for the
+  `@finterion` scope) to the repo's GitHub Actions secrets.
+- Ensure the `@finterion` npm org exists and your token can publish to it.
+- The first time the workflow runs, it will publish whatever versions are in
+  `package.json` (currently `0.1.0`) — no changeset needed for the initial release.
+
+---
+
 ## Documentation
 
 - **[Overview](docs/overview.md)** — architecture, performance model, when to use what.
