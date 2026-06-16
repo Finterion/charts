@@ -48,7 +48,7 @@ jobs:
       # package import path checks for it — build it once so the wheel
       # layout matches what users get from PyPI.
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @finterion/charts-embed-app build
+      - run: pnpm --filter "@finterion/charts-embed-app..." build
 
       - name: Install Python binding (with dev extras)
         working-directory: bindings/python
@@ -75,7 +75,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @finterion/charts-embed-app build
+      - run: pnpm --filter "@finterion/charts-embed-app..." build
       - run: python -m pip install --upgrade pip build
       - name: Build sdist + wheel
         working-directory: bindings/python

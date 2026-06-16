@@ -69,7 +69,11 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build embed bundle (offline HTML for the wheel)
-        run: pnpm --filter @finterion/charts-embed-app build
+        # `...` selects @finterion/charts-embed-app *and* all of its workspace
+        # dependencies (core, spec, react), so turbo builds them in topo order.
+        # Without the `...`, only the embed-app runs and Vite fails resolving
+        # `@finterion/charts-react` because its dist/ doesn't exist yet.
+        run: pnpm --filter "@finterion/charts-embed-app..." build
 
       - name: Verify embed bundle was produced
         run: |
