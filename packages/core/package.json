@@ -1,8 +1,16 @@
 {
   "name": "@finterion/charts-core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Framework-agnostic charting engine — Canvas 2D, typed-array buffers, layered renderers.",
-  "keywords": ["chart", "charts", "canvas", "finance", "trading", "ohlc", "candlestick"],
+  "keywords": [
+    "chart",
+    "charts",
+    "canvas",
+    "finance",
+    "trading",
+    "ohlc",
+    "candlestick"
+  ],
   "license": "MIT",
   "author": "Finterion",
   "homepage": "https://github.com/Finterion/charts/tree/main/packages/core",
@@ -11,7 +19,9 @@
     "url": "git+https://github.com/Finterion/charts.git",
     "directory": "packages/core"
   },
-  "bugs": { "url": "https://github.com/Finterion/charts/issues" },
+  "bugs": {
+    "url": "https://github.com/Finterion/charts/issues"
+  },
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -23,7 +33,10 @@
       "require": "./dist/index.cjs"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "sideEffects": false,
   "scripts": {
     "build": "tsup",
@@ -31,5 +44,7 @@
     "test": "vitest run",
     "clean": "rm -rf dist .turbo"
   },
-  "publishConfig": { "access": "public" }
+  "publishConfig": {
+    "access": "public"
+  }
 }
