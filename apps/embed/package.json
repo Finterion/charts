@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && node ../../scripts/build-python-embed-bundle.mjs",
+    "build:vite": "vite build",
+    "build:python-bundle": "node ../../scripts/build-python-embed-bundle.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

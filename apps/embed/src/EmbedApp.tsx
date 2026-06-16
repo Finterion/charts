@@ -6,23 +6,33 @@ import { decodeSpec, type ChartSpec } from '@finterion/charts-spec';
  * A static, iframe-friendly embed page for Finterion ChartSpecs.
  *
  * Resolution order (first match wins):
- *  1. `?src=<url>`         — fetch JSON ChartSpec from a URL (CORS required)
- *  2. `#spec=<base64url>`  — inline base64url-encoded ChartSpec in the hash
- *  3. window.postMessage   — host page sends `{ type: 'finterion:spec', spec }`
+ *  1. `window.__FINTERION_SPEC__` — synchronous global injected by the host
+ *     page (used by the offline `srcdoc` renderer in the Python binding).
+ *  2. `?src=<url>`         — fetch JSON ChartSpec from a URL (CORS required)
+ *  3. `#spec=<base64url>`  — inline base64url-encoded ChartSpec in the hash
+ *  4. window.postMessage   — host page sends `{ type: 'finterion:spec', spec }`
  *
  * The hash form is preferred for forum embeds: hash payloads are not sent
  * to the server, so even huge specs stay client-side.
  */
 export function EmbedApp() {
-  const [spec, setSpec] = useState<ChartSpec | null>(null);
+  // 1. window.__FINTERION_SPEC__ (synchronous; set before this script runs).
+  const injected =
+    typeof window !== 'undefined'
+      ? ((window as unknown as { __FINTERION_SPEC__?: ChartSpec }).__FINTERION_SPEC__ ?? null)
+      : null;
+
+  const [spec, setSpec] = useState<ChartSpec | null>(injected);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (injected) return;
+
     let cancelled = false;
     const url = new URL(window.location.href);
     const src = url.searchParams.get('src');
 
-    // 1. ?src=<url>
+    // 2. ?src=<url>
     if (src) {
       fetch(src, { credentials: 'omit' })
         .then((r) => {
@@ -40,7 +50,7 @@ export function EmbedApp() {
       };
     }
 
-    // 2. #spec=<base64url>
+    // 3. #spec=<base64url>
     const hash = window.location.hash.replace(/^#/, '');
     const params = new URLSearchParams(hash);
     const encoded = params.get('spec');
@@ -53,7 +63,7 @@ export function EmbedApp() {
       return;
     }
 
-    // 3. window.postMessage({ type: 'finterion:spec', spec })
+    // 4. window.postMessage({ type: 'finterion:spec', spec })
     const onMessage = (ev: MessageEvent) => {
       const data = ev.data as { type?: string; spec?: ChartSpec } | null;
       if (data && data.type === 'finterion:spec' && data.spec) {

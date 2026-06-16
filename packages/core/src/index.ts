@@ -7,6 +7,7 @@ export type {
   TradeMarker,
   IndicatorKind,
   IndicatorSeries,
+  LineStyle,
   PanelKind,
   PanelSpec,
   ChartOptions,
@@ -20,4 +21,14 @@ export { Chart, createChart } from './panels/chart';
 export { createBuffer, appendBar, indexAtTime } from './data/buffer';
 export { ema, rsi, drawdown } from './data/indicators';
 export { workerIndicators } from './data/workerClient';
-export { finterionDark, finterionLight, themes, resolveTheme, type ThemeName } from './themes';
+export {
+  finterionDark,
+  finterionLight,
+  tradingviewDark,
+  tradingviewLight,
+  terminalDark,
+  terminalLight,
+  themes,
+  resolveTheme,
+  type ThemeName,
+} from './themes';

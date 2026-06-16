@@ -19,6 +19,18 @@ export interface ChartProps {
   markers?: TradeMarker[];
   viewport?: Viewport;
   onViewportChange?: (vp: Viewport) => void;
+  /**
+   * How to choose the initial viewport when `viewport` is not provided.
+   * `'recent'` (default) shows the last ~200 bars; `'all'` fits every bar
+   * (good for backtest equity curves and other static datasets).
+   */
+  initialFit?: 'recent' | 'all';
+  /**
+   * Initial viewport as a percentage of the buffer visible. `(0, 100]`.
+   * `100` = fully zoomed out (all bars). Smaller values zoom in
+   * (e.g. `25` shows the most recent quarter). When set, overrides `initialFit`.
+   */
+  initialZoom?: number;
   /** Pixel gap between stacked panels. */
   panelGap?: number;
   /** Default title color for all panels. */
@@ -37,6 +49,23 @@ export interface ChartProps {
   background?: string;
   /** Override grid + axis line color. Defaults to `theme.grid`. */
   gridColor?: string;
+  /** Show inline legend with eye-toggle buttons. `'auto'` (default) shows it for any panel that has labeled series. */
+  showLegend?: boolean | 'auto';
+  /**
+   * Where the legend lives. `'overlay'` (default) floats on top of the
+   * chart in the top-right; `'right'` renders a sidebar to the right of the
+   * chart; `'bottom'` renders a compact strip beneath the chart. Use the
+   * external positions when you have many series.
+   */
+  legendPosition?: 'overlay' | 'right' | 'bottom';
+  /** Width (px) of the right-side legend sidebar. Default `200`. */
+  legendWidth?: number;
+  /** Max height (px) of the bottom legend strip. Default `120`. */
+  legendMaxHeight?: number;
+  /** Fired when a user toggles a series via the inline legend. */
+  onSeriesVisibilityChange?: (panelId: string, seriesId: string, hidden: boolean) => void;
+  /** Fired when a user collapses/expands a non-first pane via the title toggle. */
+  onPaneCollapseChange?: (panelId: string, collapsed: boolean) => void;
   className?: string;
   style?: React.CSSProperties;
 }
@@ -52,6 +81,8 @@ export function Chart(props: ChartProps) {
       panels: props.panels,
       markers: props.markers,
       viewport: props.viewport,
+      initialFit: props.initialFit,
+      initialZoom: props.initialZoom,
       panelGap: props.panelGap,
       titleColor: props.titleColor,
       titlePadding: props.titlePadding,
@@ -61,6 +92,12 @@ export function Chart(props: ChartProps) {
       gridStyle: props.gridStyle,
       background: props.background,
       gridColor: props.gridColor,
+      showLegend: props.showLegend,
+      legendPosition: props.legendPosition,
+      legendWidth: props.legendWidth,
+      legendMaxHeight: props.legendMaxHeight,
+      onSeriesVisibilityChange: props.onSeriesVisibilityChange,
+      onPaneCollapseChange: props.onPaneCollapseChange,
     };
     chartRef.current = new CoreChart(containerRef.current, opts);
     return () => {
@@ -108,8 +145,14 @@ export function Chart(props: ChartProps) {
       gridStyle: props.gridStyle,
       background: props.background,
       gridColor: props.gridColor,
+      showLegend: props.showLegend,
+      legendPosition: props.legendPosition,
+      legendWidth: props.legendWidth,
+      legendMaxHeight: props.legendMaxHeight,
+      onSeriesVisibilityChange: props.onSeriesVisibilityChange,
+      onPaneCollapseChange: props.onPaneCollapseChange,
     });
-  }, [props.panelGap, props.titleColor, props.titlePadding, props.titleFontSize, props.titleSpace, props.showTimeAxis, props.gridStyle, props.background, props.gridColor]);
+  }, [props.panelGap, props.titleColor, props.titlePadding, props.titleFontSize, props.titleSpace, props.showTimeAxis, props.gridStyle, props.background, props.gridColor, props.showLegend, props.legendPosition, props.legendWidth, props.legendMaxHeight, props.onSeriesVisibilityChange, props.onPaneCollapseChange]);
 
   return <div ref={containerRef} className={props.className} style={{ width: '100%', height: '100%', ...props.style }} />;
 }

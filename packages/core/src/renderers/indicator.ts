@@ -1,6 +1,19 @@
-import type { IndicatorSeries } from '../types';
+import type { IndicatorSeries, LineStyle } from '../types';
 import type { PanelLayout } from './layout';
 import { bandWidth, xCenter, yPos } from './layout';
+
+/** Dash pattern (in canvas-px) keyed by `LineStyle`. */
+function dashPattern(style: LineStyle | undefined, lineWidth: number): number[] {
+  switch (style) {
+    case 'dashed':
+      return [Math.max(4, lineWidth * 4), Math.max(3, lineWidth * 3)];
+    case 'dotted':
+      // Use a tiny on-segment so round caps render as dots.
+      return [0.1, Math.max(3, lineWidth * 3)];
+    default:
+      return [];
+  }
+}
 
 export function indicatorExtrema(values: Float32Array, startIdx: number, endIdx: number, lowerValues?: Float32Array): [number, number] {
   let min = Infinity;
@@ -88,6 +101,11 @@ export function renderIndicator(layout: PanelLayout, series: IndicatorSeries) {
     ctx.shadowColor = series.glow ?? series.color;
     ctx.shadowBlur = 6;
     ctx.lineWidth = 1.2;
+    {
+      const dash = dashPattern(series.lineStyle, ctx.lineWidth);
+      ctx.setLineDash(dash);
+      if (series.lineStyle === 'dotted') ctx.lineCap = 'round';
+    }
     for (const arr of [series.values, lower]) {
       ctx.beginPath();
       let penDown = false;
@@ -134,6 +152,11 @@ export function renderIndicator(layout: PanelLayout, series: IndicatorSeries) {
     ctx.shadowColor = series.glow ?? series.color;
     ctx.shadowBlur = 8;
     ctx.lineWidth = 1.4;
+    {
+      const dash = dashPattern(series.lineStyle, ctx.lineWidth);
+      ctx.setLineDash(dash);
+      if (series.lineStyle === 'dotted') ctx.lineCap = 'round';
+    }
     ctx.beginPath();
     let penDown = false;
     for (let i = s; i <= e; i++) {
@@ -149,6 +172,11 @@ export function renderIndicator(layout: PanelLayout, series: IndicatorSeries) {
     ctx.shadowColor = series.glow ?? series.color;
     ctx.shadowBlur = 8;
     ctx.lineWidth = 1.4;
+    {
+      const dash = dashPattern(series.lineStyle, ctx.lineWidth);
+      ctx.setLineDash(dash);
+      if (series.lineStyle === 'dotted') ctx.lineCap = 'round';
+    }
     ctx.beginPath();
     let penDown = false;
     for (let i = s; i <= e; i++) {

@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { compileSpec, type ChartSpec } from '@finterion/charts-spec';
+import { type ThemeName } from '@finterion/charts-core';
 import { Chart } from './Chart';
 
 export interface ChartFromSpecProps {
@@ -65,7 +66,7 @@ export function ChartFromSpec({ spec, className, style, fallback }: ChartFromSpe
       data={data}
       panels={panels}
       markers={markers}
-      theme={options.theme as 'finterion-dark' | 'finterion-light' | undefined}
+      theme={options.theme as ThemeName | undefined}
       background={options.background}
       gridColor={options.gridColor}
       gridStyle={options.gridStyle}
@@ -74,6 +75,7 @@ export function ChartFromSpec({ spec, className, style, fallback }: ChartFromSpe
       titleFontSize={options.titleFontSize}
       titleSpace={options.titleSpace}
       showTimeAxis={options.showTimeAxis}
+      initialZoom={options.initialZoom}
     />
   );
 }

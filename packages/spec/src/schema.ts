@@ -37,7 +37,7 @@ export const CHART_SPEC_SCHEMA = {
         },
         columns: {
           type: 'object',
-          additionalProperties: { type: 'array', items: { type: 'number' } },
+          additionalProperties: { type: 'array', items: { type: ['number', 'null'] } },
         },
         markers: {
           type: 'array',
@@ -73,7 +73,16 @@ export const CHART_SPEC_SCHEMA = {
       type: 'object',
       additionalProperties: false,
       properties: {
-        theme: { enum: ['finterion-dark', 'finterion-light'] },
+        theme: {
+          enum: [
+            'tradingview-light',
+            'tradingview-dark',
+            'terminal-light',
+            'terminal-dark',
+            'finterion-light',
+            'finterion-dark',
+          ],
+        },
         background: { $ref: '#/$defs/color' },
         gridColor: { $ref: '#/$defs/color' },
         gridStyle: { enum: ['none', 'horizontal', 'full'] },
@@ -82,11 +91,18 @@ export const CHART_SPEC_SCHEMA = {
         titleFontSize: { type: 'number', minimum: 6 },
         titleSpace: { type: 'number', minimum: 0 },
         showTimeAxis: { type: 'boolean' },
+        showLegend: {
+          oneOf: [
+            { type: 'boolean' },
+            { const: 'auto' },
+          ],
+        },
+        initialZoom: { type: 'number', exclusiveMinimum: 0, maximum: 100 },
       },
     },
     valuesRef: {
       oneOf: [
-        { type: 'array', items: { type: 'number' } },
+        { type: 'array', items: { type: ['number', 'null'] } },
         {
           type: 'object',
           required: ['column'],
@@ -104,6 +120,7 @@ export const CHART_SPEC_SCHEMA = {
         kind: { enum: ['line', 'histogram', 'area', 'band'] },
         color: { $ref: '#/$defs/color' },
         glow: { $ref: '#/$defs/color' },
+        lineStyle: { enum: ['solid', 'dashed', 'dotted'] },
         colorNegative: { $ref: '#/$defs/color' },
         lowerValues: { $ref: '#/$defs/valuesRef' },
         refLines: { type: 'array', items: { type: 'number' } },
@@ -113,6 +130,11 @@ export const CHART_SPEC_SCHEMA = {
           minItems: 2,
           maxItems: 2,
         },
+        id: { type: 'string', minLength: 1 },
+        label: { type: 'string' },
+        metric: { type: 'string' },
+        toggleable: { type: 'boolean' },
+        hidden: { type: 'boolean' },
       },
     },
     panelBase: {

@@ -21,6 +21,7 @@ import type {
   HistogramData,
   IndicatorKind,
   IndicatorSeries,
+  LineStyle,
   OHLC,
   PanelKind,
   PanelSpec,
@@ -29,6 +30,9 @@ import type {
   ThemeName,
   TradeMarker,
 } from '@finterion/charts-core';
+
+// Re-export so consumers can `import type { LineStyle } from '@finterion/charts-spec'`.
+export type { LineStyle, ThemeName, IndicatorKind } from '@finterion/charts-core';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1.  Spec types  (pure JSON — no functions, no typed arrays)
@@ -60,8 +64,9 @@ export interface ChartSpec {
       close: number[];
       volume?: number[];
     };
-    /** Free-form numeric columns. Indicator panels may reference these by name. */
-    columns?: Record<string, number[]>;
+    /** Free-form numeric columns. Indicator panels may reference these by name.
+     *  `null` entries represent gaps (rendered as NaN — line breaks at gaps). */
+    columns?: Record<string, (number | null)[]>;
     /** Trade markers. */
     markers?: TradeMarker[];
   };
@@ -76,6 +81,15 @@ export interface ChartSpec {
     titleFontSize?: number;
     titleSpace?: number;
     showTimeAxis?: boolean;
+    /** Show inline legend with toggles. `'auto'` (default) shows it for any panel that has labeled series. */
+    showLegend?: boolean | 'auto';
+    /**
+     * Initial zoom as a percentage of the buffer visible. `100` = fully
+     * zoomed out (all bars); smaller values zoom IN (fewer bars). Range:
+     * `(0, 100]`. When omitted, the engine falls back to `initialFit`
+     * (~200 bars by default).
+     */
+    initialZoom?: number;
   };
 
   panels: PanelSpecSpec[];
@@ -111,16 +125,32 @@ export interface IndicatorPanelSpec extends BasePanelSpec {
 }
 
 export interface IndicatorSeriesSpec {
-  /** Either a literal numeric array OR a `data.columns` key reference. */
-  values: number[] | { column: string };
+  /** Either a literal numeric array OR a `data.columns` key reference.
+   *  `null` entries represent gaps (rendered as NaN). */
+  values: (number | null)[] | { column: string };
   kind: IndicatorKind;
   color: string;
   glow?: string;
+  /**
+   * Stroke style for `line`, `area`, `band`. Default `'solid'`.
+   * No effect on `histogram`.
+   */
+  lineStyle?: LineStyle;
   colorNegative?: string;
   /** For `kind: 'band'` only. Same shape as `values`. */
-  lowerValues?: number[] | { column: string };
+  lowerValues?: (number | null)[] | { column: string };
   refLines?: number[];
   yRange?: [number, number];
+  /** Stable id surfaced in the visibility-change callback. */
+  id?: string;
+  /** Display name for the inline legend; presence opts the series into the toggle UI. */
+  label?: string;
+  /** Optional right-aligned metric shown next to `label` (e.g. "+35.2%"). */
+  metric?: string;
+  /** Explicit override for the legend toggle UI. `true` forces inclusion, `false` excludes. Default: infer from `label`. */
+  toggleable?: boolean;
+  /** If true, the series starts hidden. Toggling the legend mutates this flag. */
+  hidden?: boolean;
 }
 
 export interface HeatmapPanelSpec extends BasePanelSpec {
@@ -279,6 +309,8 @@ export function compileSpec(spec: ChartSpec): CompiledChart {
     ...(spec.display?.titleFontSize !== undefined ? { titleFontSize: spec.display.titleFontSize } : {}),
     ...(spec.display?.titleSpace !== undefined ? { titleSpace: spec.display.titleSpace } : {}),
     ...(spec.display?.showTimeAxis !== undefined ? { showTimeAxis: spec.display.showTimeAxis } : {}),
+    ...(spec.display?.showLegend !== undefined ? { showLegend: spec.display.showLegend } : {}),
+    ...(spec.display?.initialZoom !== undefined ? { initialZoom: spec.display.initialZoom } : {}),
   };
 
   return { data, panels, options, markers: spec.data?.markers };
@@ -302,30 +334,43 @@ function barsToOHLC(b: NonNullable<NonNullable<ChartSpec['data']>['bars']>): OHL
 }
 
 function resolveValues(
-  v: number[] | { column: string },
-  columns: Record<string, number[]>,
+  v: (number | null)[] | { column: string },
+  columns: Record<string, (number | null)[]>,
 ): Float32Array {
-  if (Array.isArray(v)) return new Float32Array(v);
-  const col = columns[v.column];
-  if (!col) throw new Error(`Unknown column reference: "${v.column}"`);
-  return new Float32Array(col);
+  // NB: `new Float32Array([null])` coerces null → 0, NOT NaN. JSON gap values
+  // (e.g. pandas NaN serialised as null) must become NaN so the renderers can
+  // break the line at gaps. We allocate and fill manually to preserve NaN.
+  const src = Array.isArray(v) ? v : columns[v.column];
+  if (!src) throw new Error(`Unknown column reference: "${(v as { column: string }).column}"`);
+  const out = new Float32Array(src.length);
+  for (let i = 0; i < src.length; i++) {
+    const x = src[i];
+    out[i] = x == null ? NaN : (x as number);
+  }
+  return out;
 }
 
-function compileIndicator(s: IndicatorSeriesSpec, columns: Record<string, number[]>): IndicatorSeries {
+function compileIndicator(s: IndicatorSeriesSpec, columns: Record<string, (number | null)[]>): IndicatorSeries {
   const out: IndicatorSeries = {
     values: resolveValues(s.values, columns),
     kind: s.kind,
     color: s.color,
   };
   if (s.glow !== undefined) out.glow = s.glow;
+  if (s.lineStyle !== undefined) out.lineStyle = s.lineStyle;
   if (s.colorNegative !== undefined) out.colorNegative = s.colorNegative;
   if (s.lowerValues !== undefined) out.lowerValues = resolveValues(s.lowerValues, columns);
   if (s.refLines !== undefined) out.refLines = s.refLines;
   if (s.yRange !== undefined) out.yRange = s.yRange;
+  if (s.id !== undefined) out.id = s.id;
+  if (s.label !== undefined) out.label = s.label;
+  if (s.metric !== undefined) out.metric = s.metric;
+  if (s.toggleable !== undefined) out.toggleable = s.toggleable;
+  if (s.hidden !== undefined) out.hidden = s.hidden;
   return out;
 }
 
-function compilePanel(p: PanelSpecSpec, columns: Record<string, number[]>): PanelSpec {
+function compilePanel(p: PanelSpecSpec, columns: Record<string, (number | null)[]>): PanelSpec {
   const base: PanelSpec = {
     id: p.id,
     kind: p.kind,
@@ -466,7 +511,14 @@ export function getChartCapabilities(): ChartCapabilities {
       'short-num',
       'iso-date',
     ],
-    themes: ['finterion-dark', 'finterion-light'],
+    themes: [
+      'tradingview-light',
+      'tradingview-dark',
+      'terminal-light',
+      'terminal-dark',
+      'finterion-light',
+      'finterion-dark',
+    ],
     gridStyles: ['none', 'horizontal', 'full'],
   };
 }

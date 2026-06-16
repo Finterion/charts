@@ -1,0 +1,55 @@
+[build-system]
+requires = ["hatchling>=1.18"]
+build-backend = "hatchling.build"
+
+[project]
+name = "finterion-charts"
+version = "0.2.0"
+description = "Python binding for Finterion Charts — declarative ChartSpec builder, validator, and codec."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Finterion" }]
+requires-python = ">=3.10"
+keywords = ["chart", "charts", "finance", "trading", "ohlc", "candlestick", "finterion"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Office/Business :: Financial :: Investment",
+    "Topic :: Scientific/Engineering :: Visualization",
+]
+dependencies = []
+
+[project.optional-dependencies]
+schema  = ["jsonschema>=4.17"]
+pandas  = ["pandas>=2.0", "numpy>=1.24"]
+jupyter = ["ipython>=8.0"]
+all     = ["jsonschema>=4.17", "pandas>=2.0", "numpy>=1.24", "ipython>=8.0"]
+dev     = ["pytest>=7.4", "jsonschema>=4.17", "pandas>=2.0", "numpy>=1.24"]
+
+[project.urls]
+Homepage = "https://github.com/Finterion/charts"
+Issues   = "https://github.com/Finterion/charts/issues"
+Source   = "https://github.com/Finterion/charts/tree/main/bindings/python"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/finterion_charts"]
+# Ship the offline embed bundle (rebuilt by
+# scripts/build-python-embed-bundle.mjs at the repo root).
+artifacts = ["src/finterion_charts/_static/embed.html"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/finterion_charts",
+    "src/finterion_charts/_static/embed.html",
+    "README.md",
+    "tests",
+    "examples",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

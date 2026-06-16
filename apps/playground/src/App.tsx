@@ -8,9 +8,11 @@ import {
   type OHLC,
   type PanelSpec,
   type SeriesType,
-  type ThemeName,
   type TradeMarker,
 } from '@finterion/charts-core';
+import { TopBar, ToggleGroup, KpiTile } from './finterion/components';
+import { colors, radii, spacing } from './finterion/tokens';
+import { useChartTheme } from './finterion/themeContext';
 
 const N = 800;
 
@@ -42,7 +44,7 @@ const MARKERS: TradeMarker[] = [];
 export function App() {
   const data = useMemo(() => generate(N), []);
   const [type, setType] = useState<SeriesType>('candles');
-  const [theme, setTheme] = useState<ThemeName>('finterion-dark');
+  const theme = useChartTheme();
   const [rsiVals, setRsiVals] = useState<Float32Array | null>(null);
   const [ddVals, setDdVals] = useState<Float32Array | null>(null);
   const [emaFast, setEmaFast] = useState<Float32Array | null>(null);
@@ -86,8 +88,8 @@ export function App() {
 
   const panels = useMemo<PanelSpec[]>(() => {
     const overlays: IndicatorSeries[] = [];
-    if (emaFast) overlays.push({ values: emaFast, kind: 'line', color: '#00e5ff', glow: 'rgba(0,229,255,0.55)' });
-    if (emaSlow) overlays.push({ values: emaSlow, kind: 'line', color: '#ff2dd1', glow: 'rgba(255,45,209,0.55)' });
+    if (emaFast) overlays.push({ id: 'ema-12', label: 'EMA 12', values: emaFast, kind: 'line', color: colors.chartSeries1 });
+    if (emaSlow) overlays.push({ id: 'ema-48', label: 'EMA 48', values: emaSlow, kind: 'line', color: colors.chartSeries2 });
 
     const out: PanelSpec[] = [
       { id: 'price', kind: 'price', weight: 3, type, title: 'BTC / USD', overlays },
@@ -99,10 +101,11 @@ export function App() {
         weight: 1,
         title: 'RSI 14',
         indicator: {
+          id: 'rsi',
+          label: 'RSI 14',
           values: rsiVals,
           kind: 'line',
-          color: '#a3ff12',
-          glow: 'rgba(163,255,18,0.5)',
+          color: colors.chartSeries3,
           refLines: [30, 70],
           yRange: [0, 100],
         },
@@ -115,63 +118,123 @@ export function App() {
         weight: 1,
         title: 'Drawdown %',
         indicator: {
+          id: 'dd',
+          label: 'Drawdown',
           values: ddVals,
           kind: 'area',
-          color: '#ff3d6e',
-          glow: 'rgba(255,61,110,0.45)',
+          color: colors.quantDown,
         },
       });
     }
     return out;
   }, [type, rsiVals, ddVals, emaFast, emaSlow]);
 
-  const isDark = theme === 'finterion-dark';
+  // ── KPI strip (price, drawdown, last signal) ──
+  const lastBar = data[data.length - 1]!;
+  const firstBar = data[0]!;
+  const pctChange = ((lastBar.close - firstBar.close) / firstBar.close) * 100;
+  const lastDD = ddVals && ddVals.length ? ddVals[ddVals.length - 1]! : 0;
+  const lastRsi = rsiVals && rsiVals.length ? rsiVals[rsiVals.length - 1]! : 0;
 
   return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      height: '100vh',
-      background: isDark ? 'radial-gradient(1200px 600px at 20% 0%, #0a1a2c 0%, #06070a 60%)' : '#f6f7fb',
-      color: isDark ? '#e8ecf2' : '#0a0e19',
-      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-    }}>
-      <header style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '14px 20px',
-        borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(10,14,25,0.08)'}`,
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div style={{
-            width: 10, height: 10, borderRadius: '50%',
-            background: '#00ffa3', boxShadow: '0 0 16px #00ffa3',
-          }} />
-          <div style={{ fontSize: 14, letterSpacing: 2 }}>FINTERION CHARTS</div>
-          <div style={{ fontSize: 11, opacity: 0.5 }}>· demo</div>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {(['candles', 'line', 'area'] as const).map((t) => (
-            <Btn key={t} active={type === t} onClick={() => setType(t)}>{t}</Btn>
-          ))}
-          <div style={{ width: 1, background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.1)', margin: '0 6px' }} />
-          <Btn active={isDark} onClick={() => setTheme('finterion-dark')}>dark</Btn>
-          <Btn active={!isDark} onClick={() => setTheme('finterion-light')}>light</Btn>
-        </div>
-      </header>
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: 'calc(100vh - 56px)',
+        background: colors.canvasSubtle,
+        color: colors.ink,
+        fontFamily: 'Inter, system-ui, sans-serif',
+      }}
+    >
+      <TopBar
+        title="Finterion Charts"
+        subtitle="Default playground · BTC/USD synthetic feed"
+        tag="DEMO"
+        right={
+          <div style={{ display: 'flex', gap: spacing.sm, alignItems: 'center' }}>
+            <ToggleGroup<SeriesType>
+              size="sm"
+              value={type}
+              onChange={setType}
+              options={[
+                { label: 'Candles', value: 'candles' },
+                { label: 'Line', value: 'line' },
+                { label: 'Area', value: 'area' },
+              ]}
+            />
+          </div>
+        }
+      />
 
-      <div style={{ flex: 1, padding: 16, minHeight: 0 }}>
-        <div style={{ width: '100%', height: '100%', minHeight: 0 }}>
-          <Chart data={data} panels={panels} theme={theme} markers={markers} />
+      {/* KPI strip */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+          gap: spacing.md,
+          padding: `${spacing.lg}px ${spacing.xl}px 0`,
+        }}
+      >
+        <KpiTile
+          label="Last price"
+          value={`$${lastBar.close.toFixed(2)}`}
+          delta={`${pctChange >= 0 ? '+' : ''}${pctChange.toFixed(2)}% (${data.length} bars)`}
+          tone={pctChange >= 0 ? 'up' : 'down'}
+        />
+        <KpiTile
+          label="Drawdown"
+          value={`${(lastDD * 100).toFixed(2)}%`}
+          delta="current"
+          tone={lastDD < -0.01 ? 'down' : 'flat'}
+        />
+        <KpiTile
+          label="RSI 14"
+          value={lastRsi ? lastRsi.toFixed(1) : '—'}
+          delta={lastRsi > 70 ? 'overbought' : lastRsi < 30 ? 'oversold' : 'neutral'}
+          tone={lastRsi > 70 ? 'down' : lastRsi < 30 ? 'up' : 'flat'}
+        />
+        <KpiTile
+          label="Signals"
+          value={String(markers.length)}
+          delta="EMA 12 × EMA 48"
+        />
+      </div>
+
+      {/* Chart card */}
+      <div style={{ padding: spacing.xl }}>
+        <div
+          style={{
+            width: '100%',
+            height: 480,
+            background: colors.canvas,
+            border: `1px solid ${colors.hairline}`,
+            borderRadius: radii.sm,
+            boxShadow: `0 1px 0 ${colors.shadowCard}`,
+            padding: spacing.sm,
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          <div style={{ flex: 1, minHeight: 0 }}>
+            <Chart data={data} panels={panels} theme={theme} markers={markers} initialFit="all" />
+          </div>
         </div>
       </div>
 
-      <footer style={{
-        padding: '8px 20px',
-        fontSize: 11,
-        opacity: 0.55,
-        borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(10,14,25,0.08)'}`,
-        display: 'flex', gap: 16,
-      }}>
+      <footer
+        style={{
+          padding: `${spacing.sm}px ${spacing.xl}px`,
+          fontSize: 11,
+          color: colors.inkMuted,
+          fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+          letterSpacing: 0.5,
+          borderTop: `1px solid ${colors.hairlineSoft}`,
+          background: colors.canvas,
+          display: 'flex',
+          gap: spacing.lg,
+        }}
+      >
         <span>drag to pan</span>
         <span>scroll to zoom</span>
         <span>{data.length} bars</span>
@@ -179,29 +242,5 @@ export function App() {
         <span style={{ marginLeft: 'auto' }}>indicators: web worker</span>
       </footer>
     </div>
-  );
-}
-
-function Btn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        padding: '6px 12px',
-        borderRadius: 6,
-        border: '1px solid rgba(255,255,255,0.08)',
-        background: active ? '#00e5ff' : 'transparent',
-        color: active ? '#06070a' : 'inherit',
-        cursor: 'pointer',
-        fontFamily: 'inherit',
-        fontSize: 11,
-        letterSpacing: 1,
-        textTransform: 'uppercase',
-        boxShadow: active ? '0 0 16px rgba(0,229,255,0.4)' : 'none',
-        transition: 'all 0.15s',
-      }}
-    >
-      {children}
-    </button>
   );
 }

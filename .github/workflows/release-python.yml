@@ -1,0 +1,181 @@
+name: Release Python
+
+# ─────────────────────────────────────────────────────────────────────────────
+# How to cut a Python release
+#
+#  1. Bump `version` in `bindings/python/pyproject.toml` on `main`.
+#  2. Tag the commit `python-vX.Y.Z` (must match pyproject.toml exactly):
+#         git tag python-v0.2.0 && git push --tags
+#
+# What this workflow does
+#  - Builds the offline embed bundle (vite + the inliner script), so the wheel
+#    ships with an up-to-date `_static/embed.html`.
+#  - Builds a pure-Python wheel + sdist with `python -m build`.
+#  - Verifies the wheel actually contains `_static/embed.html` and that its
+#    `Version:` matches the git tag — fail-fast before publishing.
+#  - Publishes to PyPI via Trusted Publishing (OIDC). No API token required.
+#  - Attaches the dist/ artefacts to a GitHub Release.
+#
+# One-time PyPI setup
+#  Configure a Trusted Publisher at https://pypi.org/manage/account/publishing/
+#  with:
+#    • PyPI Project Name:  finterion-charts
+#    • Owner:              <your-gh-org>
+#    • Repository name:    <your-gh-repo>
+#    • Workflow filename:  release-python.yml
+#    • Environment name:   pypi      (optional but recommended)
+#
+# To publish to TestPyPI first, push a tag like `python-v0.2.0-rc1` and the
+# `testpypi` job below will pick it up (configure the trusted publisher on
+# https://test.pypi.org as well).
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  push:
+    tags:
+      - 'python-v*'
+
+concurrency:
+  group: release-python-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build wheel + sdist
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      is_prerelease: ${{ steps.version.outputs.is_prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install JS deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Build embed bundle (offline HTML for the wheel)
+        run: pnpm --filter @finterion/charts-embed-app build
+
+      - name: Verify embed bundle was produced
+        run: |
+          set -euo pipefail
+          test -s bindings/python/src/finterion_charts/_static/embed.html
+          echo "embed.html size: $(wc -c < bindings/python/src/finterion_charts/_static/embed.html) bytes"
+
+      - name: Install Python build tooling
+        run: python -m pip install --upgrade pip build
+
+      - name: Resolve + validate version against tag
+        id: version
+        working-directory: bindings/python
+        run: |
+          set -euo pipefail
+          PYPROJECT_VERSION=$(python -c "import tomllib,pathlib;print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")
+          TAG="${GITHUB_REF##*/}"          # python-v0.2.0
+          TAG_VERSION="${TAG#python-v}"    # 0.2.0
+          echo "pyproject version: $PYPROJECT_VERSION"
+          echo "git tag version:   $TAG_VERSION"
+          if [ "$PYPROJECT_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::Tag ($TAG_VERSION) does not match pyproject.toml version ($PYPROJECT_VERSION)."
+            exit 1
+          fi
+          echo "version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
+          if [[ "$TAG_VERSION" == *[-a-zA-Z]* ]]; then
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build wheel + sdist
+        working-directory: bindings/python
+        run: python -m build
+
+      - name: Verify wheel contents
+        working-directory: bindings/python
+        run: |
+          set -euo pipefail
+          WHEEL=$(ls dist/*.whl | head -n1)
+          echo "Inspecting $WHEEL"
+          python -m zipfile -l "$WHEEL" | tee /tmp/wheel-listing.txt
+          grep -q "finterion_charts/_static/embed.html" /tmp/wheel-listing.txt \
+            || { echo "::error::embed.html not packaged in wheel"; exit 1; }
+
+      - name: Upload dist artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-dist
+          path: bindings/python/dist/*
+          if-no-files-found: error
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: build
+    if: needs.build.outputs.is_prerelease == 'false'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/finterion-charts/${{ needs.build.outputs.version }}/
+    permissions:
+      id-token: write   # Required for PyPI Trusted Publishing (OIDC).
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: dist
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  publish-testpypi:
+    name: Publish to TestPyPI
+    needs: build
+    if: needs.build.outputs.is_prerelease == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/finterion-charts/${{ needs.build.outputs.version }}/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: dist
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  github-release:
+    name: Create GitHub Release
+    needs: [build, publish-pypi]
+    if: needs.build.outputs.is_prerelease == 'false'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: dist
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: finterion-charts ${{ needs.build.outputs.version }} (Python)
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: dist/*

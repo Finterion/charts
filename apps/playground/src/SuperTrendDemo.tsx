@@ -6,6 +6,7 @@ import type {
   ThemeName,
   TradeMarker,
 } from '@finterion/charts-core';
+import { useChartTheme } from './finterion/themeContext';
 
 interface SuperTrendPayload {
   symbol: string;
@@ -70,7 +71,7 @@ function splitByTrend(
 
 export function SuperTrendDemo() {
   const [payload, setPayload] = useState<SuperTrendPayload | null>(null);
-  const [theme, setTheme] = useState<ThemeName>('finterion-dark');
+  const theme = useChartTheme();
   const [gridStyle, setGridStyle] = useState<'none' | 'horizontal' | 'full'>('horizontal');
 
   useEffect(() => {
@@ -231,11 +232,17 @@ return [
 
   const allInOneCode = `// Return either a PanelSpec[] or an object that lets you also override
 // chart-wide display options (background, grid color, grid style).
+//
+// 👇 Inline legend with eye-toggle buttons:
+//    • By default any series with a \`label\` becomes toggleable ('auto').
+//    • Set \`toggleable: true\` to force a series into the legend (a fallback
+//      label is derived from \`id\` if no \`label\` is set).
+//    • Set \`toggleable: false\` to keep a series out of the legend even if
+//      it has a label (useful for axis-only reference series).
 const { bull, bear } = splitByTrend(payload.supertrend, payload.supertrend_trend);
 const trendArr = new Float32Array(payload.supertrend_trend);
 
 return {
-  // 👇 try editing these — the chart redraws live
   background: '#131722',
   gridColor: '#494d57',
   gridStyle: 'horizontal', // 'none' | 'horizontal' | 'full'
@@ -247,23 +254,45 @@ return {
       type: 'candles',
       title: \`\${payload.symbol} · BB + SuperTrend\`,
       overlays: [
-        // Bollinger Bands (cyan band + amber middle)
+        // Bollinger Bands (cyan band + amber middle) — explicitly toggleable.
         {
+          id: 'bb-band',
+          label: \`BB \${payload.bb_period} ±\${payload.bb_std_dev}σ\`,
           values: toFloat32(payload.bb_upper),
           lowerValues: toFloat32(payload.bb_lower),
           kind: 'band',
           color: 'rgba(0,229,255,0.7)',
           glow: 'rgba(0,229,255,0.22)',
+          toggleable: true,
         },
         {
+          id: 'bb-mid',
+          label: 'BB middle',
           values: toFloat32(payload.bb_middle),
           kind: 'line',
           color: '#ffd166',
           glow: 'rgba(255,209,102,0.35)',
+          toggleable: true,
         },
-        // SuperTrend (green/red, split by regime)
-        { values: bull, kind: 'line', color: '#00ffa3', glow: 'rgba(0,255,163,0.55)' },
-        { values: bear, kind: 'line', color: '#ff3d6e', glow: 'rgba(255,61,110,0.55)' },
+        // SuperTrend (green/red, split by regime). Both share one toggle row.
+        {
+          id: 'st-bull',
+          label: \`SuperTrend ATR \${payload.atr_length} ×\${payload.factor} (bull)\`,
+          values: bull,
+          kind: 'line',
+          color: '#00ffa3',
+          glow: 'rgba(0,255,163,0.55)',
+          toggleable: true,
+        },
+        {
+          // No label → derived from id when toggleable is explicit.
+          id: 'st-bear',
+          values: bear,
+          kind: 'line',
+          color: '#ff3d6e',
+          glow: 'rgba(255,61,110,0.55)',
+          toggleable: true,
+        },
       ],
     },
     {
@@ -272,6 +301,8 @@ return {
       weight: 1,
       title: \`RSI \${payload.rsi_period}\`,
       indicator: {
+        id: 'rsi',
+        label: \`RSI \${payload.rsi_period}\`,
         values: toFloat32(payload.rsi),
         kind: 'line',
         color: '#a3ff12',
@@ -286,6 +317,8 @@ return {
       weight: 1,
       title: 'SuperTrend regime (1 = bull, 0 = bear)',
       indicator: {
+        id: 'st-regime',
+        label: 'SuperTrend regime',
         values: trendArr,
         kind: 'area',
         color: '#00e5ff',
@@ -298,7 +331,7 @@ return {
 };
 `;
 
-  const isDark = theme === 'finterion-dark';
+  const isDark = theme === 'tradingview-dark' || theme === 'terminal-dark' || theme === 'finterion-dark';
 
   if (!payload) {
     return (
@@ -404,12 +437,6 @@ return {
           </Btn>
           <Btn active={gridStyle === 'full'} onClick={() => setGridStyle('full')}>
             grid
-          </Btn>
-          <Btn active={isDark} onClick={() => setTheme('finterion-dark')}>
-            dark
-          </Btn>
-          <Btn active={!isDark} onClick={() => setTheme('finterion-light')}>
-            light
           </Btn>
         </div>
       </div>
@@ -787,6 +814,7 @@ function LiveChartCard({
               panels={compiled.panels}
               theme={theme}
               markers={markers}
+              initialFit="all"
               {...chartDisplay}
               {...(compiled.overrides.background !== undefined ? { background: compiled.overrides.background } : {})}
               {...(compiled.overrides.gridColor !== undefined ? { gridColor: compiled.overrides.gridColor } : {})}

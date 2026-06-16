@@ -7,6 +7,7 @@
 import { useMemo } from 'react';
 import { Chart } from '@finterion/charts-react';
 import type { OHLC, PanelSpec } from '@finterion/charts-core';
+import { useChartTheme } from './finterion/themeContext';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -205,6 +206,7 @@ function PanelCard({
 
 // ───────────────────────── page ─────────────────────────
 export function PortfolioOverview() {
+  const theme = useChartTheme();
   const points = useMemo(() => generateDaily(2006, 11, 7), []);
   const monthly = useMemo(() => aggregateMonthly(points), [points]);
   const yearly = useMemo(() => aggregateYearly(monthly), [monthly]);
@@ -347,8 +349,7 @@ export function PortfolioOverview() {
   );
 
   const chartCommon = {
-    theme: 'finterion-light' as const,
-    titleColor: '#222',
+    theme,
     titleFontSize: 12,
     titlePadding: { top: 8, left: 12 },
     titleSpace: 24,
