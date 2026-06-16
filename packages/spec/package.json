@@ -1,8 +1,15 @@
 {
   "name": "@finterion/charts-spec",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "JSON-only ChartSpec schema, validator and compiler for Finterion Charts. Designed for LLM agents and forum/iframe embedding.",
-  "keywords": ["chart", "charts", "schema", "json-schema", "llm", "finance"],
+  "keywords": [
+    "chart",
+    "charts",
+    "schema",
+    "json-schema",
+    "llm",
+    "finance"
+  ],
   "license": "MIT",
   "author": "Finterion",
   "homepage": "https://github.com/Finterion/charts/tree/main/packages/spec",
@@ -11,7 +18,9 @@
     "url": "git+https://github.com/Finterion/charts.git",
     "directory": "packages/spec"
   },
-  "bugs": { "url": "https://github.com/Finterion/charts/issues" },
+  "bugs": {
+    "url": "https://github.com/Finterion/charts/issues"
+  },
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -23,7 +32,10 @@
       "require": "./dist/index.cjs"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "sideEffects": false,
   "scripts": {
     "build": "tsup",
@@ -33,5 +45,7 @@
   "dependencies": {
     "@finterion/charts-core": "workspace:*"
   },
-  "publishConfig": { "access": "public" }
+  "publishConfig": {
+    "access": "public"
+  }
 }
