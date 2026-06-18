@@ -42,7 +42,10 @@ packages = ["src/finterion_charts"]
 artifacts = ["src/finterion_charts/_static/embed.html"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"../../LICENSE" = "finterion_charts/LICENSE"
+# `LICENSE` here is a symlink to ../../LICENSE in the repo, but the sdist
+# unpacks it as a real file at the package root so this path resolves both
+# when building directly from the source tree and when building wheel-from-sdist.
+"LICENSE" = "finterion_charts/LICENSE"
 
 [tool.hatch.build.targets.sdist]
 include = [
@@ -54,7 +57,7 @@ include = [
 ]
 
 [tool.hatch.build.targets.sdist.force-include]
-"../../LICENSE" = "LICENSE"
+"LICENSE" = "LICENSE"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

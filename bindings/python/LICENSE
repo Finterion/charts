@@ -1,0 +1,157 @@
+Finterion Community License, Version 1.0
+========================================
+
+Copyright (c) 2026 Finterion. All rights reserved.
+
+This is a source-available licence. It is NOT an Open Source licence as
+defined by the Open Source Initiative. Read it carefully before using the
+Software.
+
+
+1. Definitions
+--------------
+
+  "Software"   means the source code, object code, compiled artefacts and
+               documentation in this repository (including all packages
+               published under the @finterion/* npm scope and the
+               `finterion-charts` PyPI package), and any modifications or
+               derivative works thereof.
+
+  "Licensor"   means Finterion.
+
+  "You"        means the individual or legal entity exercising rights under
+               this licence.
+
+  "Attribution Badge" means the "Powered by Finterion" badge (logo and/or
+               wordmark) that the Software renders by default on every
+               chart, together with the link to https://finterion.com.
+
+  "Commercial Licence" means a separate written agreement between You and
+               the Licensor that grants rights not granted by this licence.
+
+
+2. Grant
+--------
+
+Subject to the conditions in Section 3, the Licensor grants You a
+worldwide, royalty-free, non-exclusive, non-transferable licence to:
+
+  (a) use the Software for any lawful purpose, including commercial use;
+  (b) reproduce and distribute copies of the Software;
+  (c) modify the Software and distribute the modifications;
+  (d) sublicense those rights to Your own users to the same extent.
+
+
+3. Conditions
+-------------
+
+Your rights under Section 2 are conditioned on ALL of the following.
+Failure to comply with any of them terminates this licence automatically
+(see Section 6).
+
+  3.1 Attribution Badge. Every rendered chart MUST display the Attribution
+      Badge by default and at runtime, in its unmodified form, at the
+      visibility and position chosen by the Software. You MUST NOT:
+
+        - disable, hide, obscure, shrink below legibility, recolour to be
+          invisible against the background, programmatically remove, or
+          otherwise defeat the Attribution Badge;
+        - pass `branding: false` / `branding=False` (or equivalent) in a
+          production deployment;
+        - patch, fork or vendor the Software to remove the Attribution
+          Badge by default;
+        - alter the logo, wordmark, link target or text of the Attribution
+          Badge.
+
+  3.2 No Competing Product. You MUST NOT use the Software, in whole or in
+      part, to offer a hosted or managed service whose primary value
+      proposition is providing the Software's functionality to third
+      parties (a "Competing Product"). Examples: a SaaS that exposes
+      Finterion Charts as the user-visible charting product; a paid API
+      that proxies chart-rendering. Building a product that USES Finterion
+      Charts as one component of a broader application is fine and
+      encouraged.
+
+  3.3 Notices. You MUST retain this licence, the copyright notice, and
+      the trademark notice in Section 5 in all copies or substantial
+      portions of the Software.
+
+  3.4 Trademark. You MUST NOT use the "Finterion" name, the Finterion
+      logo, or any confusingly similar marks to identify Your modified
+      version, fork, or derivative work. See Section 5.
+
+
+4. Commercial Licence
+---------------------
+
+If You want to:
+
+  (a) remove or replace the Attribution Badge; or
+  (b) offer a Competing Product as defined in Section 3.2,
+
+You must first obtain a Commercial Licence from the Licensor. Contact
+licensing@finterion.com.
+
+Finterion's own websites, products and services operate under an implicit
+Commercial Licence and are not required to display the Attribution Badge.
+
+
+5. Trademark
+------------
+
+"Finterion" and the Finterion logo are trademarks of Finterion. This
+licence grants You NO rights in those marks beyond the limited use
+required by Section 3.1 to display the Attribution Badge in its
+unmodified form.
+
+You MUST NOT market a fork, derivative, or service built on the Software
+as "Finterion Charts" or as a Finterion product. A generic-named fork
+that ships its own branding and complies with Sections 3.1 and 3.2 is
+permitted.
+
+
+6. Termination
+--------------
+
+Any breach of Section 3 terminates this licence automatically and
+immediately. Upon termination You MUST stop all use and distribution of
+the Software. Sections 5, 7, 8 and 9 survive termination.
+
+The Licensor may, at its sole discretion, reinstate the licence if You
+cure the breach within 30 days of receiving written notice.
+
+
+7. Disclaimer of Warranty
+-------------------------
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE AND
+NON-INFRINGEMENT.
+
+
+8. Limitation of Liability
+--------------------------
+
+IN NO EVENT SHALL THE LICENSOR BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE. To the maximum extent permitted by law, the
+Licensor's total liability under or in connection with this licence
+shall not exceed one hundred US dollars (USD 100).
+
+
+9. Miscellaneous
+----------------
+
+This licence is governed by and construed in accordance with the laws
+applicable at the Licensor's principal place of business, without regard
+to conflict of laws principles. If any provision of this licence is held
+unenforceable, the remaining provisions shall continue in full force.
+
+This is the complete and exclusive agreement between the parties with
+respect to the Software, superseding any prior agreements concerning its
+subject matter.
+
+For commercial licensing or trademark questions, contact:
+info@finterion.com
