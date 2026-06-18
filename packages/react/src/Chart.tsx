@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import {
   Chart as CoreChart,
   createBuffer,
+  type BrandingOptions,
   type ChartOptions,
   type OHLC,
   type PanelSpec,
@@ -66,6 +67,12 @@ export interface ChartProps {
   onSeriesVisibilityChange?: (panelId: string, seriesId: string, hidden: boolean) => void;
   /** Fired when a user collapses/expands a non-first pane via the title toggle. */
   onPaneCollapseChange?: (panelId: string, collapsed: boolean) => void;
+  /**
+   * "Powered by Finterion" attribution badge. `true`/omitted shows the badge,
+   * `false` hides it (subject to the LICENSE trademark policy), or pass a
+   * `BrandingOptions` object to customize text/SVG/position/colour.
+   */
+  branding?: boolean | BrandingOptions;
   className?: string;
   style?: React.CSSProperties;
 }
@@ -98,6 +105,7 @@ export function Chart(props: ChartProps) {
       legendMaxHeight: props.legendMaxHeight,
       onSeriesVisibilityChange: props.onSeriesVisibilityChange,
       onPaneCollapseChange: props.onPaneCollapseChange,
+      branding: props.branding,
     };
     chartRef.current = new CoreChart(containerRef.current, opts);
     return () => {

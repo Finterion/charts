@@ -1,6 +1,6 @@
 {
   "name": "@finterion/charts-react",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "description": "React bindings for Finterion Charts.",
   "keywords": [
     "chart",
@@ -11,7 +11,7 @@
     "trading",
     "candlestick"
   ],
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "author": "Finterion",
   "homepage": "https://github.com/Finterion/charts/tree/main/packages/react",
   "repository": {

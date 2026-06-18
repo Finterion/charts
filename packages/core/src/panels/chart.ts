@@ -1,4 +1,4 @@
-import type { ChartOptions, OHLCBuffer, PanelSpec, ThemeTokens, TradeMarker, Viewport } from '../types';
+import type { BrandingOptions, ChartOptions, OHLCBuffer, PanelSpec, ThemeTokens, TradeMarker, Viewport } from '../types';
 import { resolveTheme } from '../themes';
 import { Panel, isTimePanel, type LegendMode, type PanelHooks } from './panel';
 import { attachPanZoom } from '../interactions/panZoom';
@@ -6,6 +6,39 @@ import { xCenter } from '../renderers/layout';
 import type { TitleStyle } from '../renderers/grid';
 import { computeTimeTicks, drawTimeAxis } from '../renderers/grid';
 import type { GridStyle } from '../renderers/grid';
+
+/**
+ * Default Finterion brand mark + wordmark used by the "Powered by" badge.
+ *
+ * The geometric mark on the left keeps its blue/yellow gradients (works on any
+ * background). The wordmark uses `fill="currentColor"` so it inherits the
+ * badge `color` option and adapts to dark vs. light themes automatically.
+ */
+const DEFAULT_FINTERION_LOGO_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1522.56 312.4" width="78" height="16" aria-label="Finterion" style="display:block;flex:none">' +
+  '<defs>' +
+  '<linearGradient id="fcm1" x1="0" y1="75.89" x2="215.29" y2="75.89" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#0052ff"/><stop offset="1" stop-color="#009eff"/></linearGradient>' +
+  '<linearGradient id="fcm2" x1="0" y1="205.31" x2="174.51" y2="205.31" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#0052ff"/><stop offset="1" stop-color="#009eff"/></linearGradient>' +
+  '<linearGradient id="fcy1" x1="14.24" y1="290.09" x2="14.28" y2="290.09" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#dba203"/><stop offset="1" stop-color="#ffc000"/></linearGradient>' +
+  '<linearGradient id="fcy2" x1="10.68" y1="272.08" x2="97.5" y2="272.08" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#dba203"/><stop offset="1" stop-color="#ffc000"/></linearGradient>' +
+  '</defs>' +
+  '<g fill="currentColor">' +
+  '<path d="M426.55,66.95v-22.71h-136.36v232.84h38.25v-94.48h80.88c7.68,0,13.91-6.23,13.91-13.91v-22.66h-94.78v-65.19h84.21c7.68,0,13.91-6.23,13.91-13.91Z"/>' +
+  '<path d="M453.49,110.76v166.32h35.9V110.76h-35.9ZM487.74,46.91c-4.45-4.66-9.88-6.96-16.33-6.96s-11.83,2.3-16.28,6.96c-4.46,4.45-6.66,9.78-6.66,15.98s2.2,11.62,6.66,16.28c4.66,4.45,10.09,6.66,16.28,6.66s11.52-2.2,15.98-6.66c4.66-4.66,6.96-10.09,6.96-16.28s-2.2-11.52-6.61-15.98Z"/>' +
+  '<path d="M652.72,124.9c-11.62-12.29-27.09-18.43-46.39-18.43-23.3,0-40.45,8.55-51.56,25.6v-21.3h-35.9v166.32h35.9v-89.15c0-15.72,3.79-27.65,11.32-35.74,7.53-8.09,17.87-12.14,30.93-12.14,11.52,0,20.64,3.33,27.29,9.99,6.66,6.66,9.99,16.18,9.99,28.57v98.47h35.9v-102.11c0-21.1-5.84-37.74-17.46-50.08Z"/>' +
+  '<path d="M976.14,194.23c0-24.37-7.83-45.11-23.61-62.17-15.72-17.05-35.69-25.6-59.86-25.6-25.96,0-47.01,8.4-63.19,25.24-16.44,16.9-24.63,37.59-24.63,62.22s8.35,46.24,24.99,62.88c16.85,16.39,38.66,24.58,65.49,24.58,32.36,0,56.63-12.08,72.82-36.25l-29.6-17.31c-9.73,13.77-24.07,20.64-42.91,20.64-13.93,0-25.65-3.43-35.08-10.29-9.42-6.86-15.46-16.54-18.13-28.93h132.37c.87-5.53,1.33-10.55,1.33-15ZM842.13,179.94c2.41-12.65,8.09-22.58,16.95-29.9,8.86-7.32,19.97-11.01,33.23-11.01,12.24,0,22.58,3.58,31.13,10.65,8.5,7.12,14.03,17.21,16.44,30.26h-97.75Z"/>' +
+  '<path d="M1037.02,138.72v-27.96h-35.95v166.32h35.95v-83.83c0-17.05,5.07-29.29,15.26-36.56,10.45-7.58,22.17-9.99,35.95-9.99v-35.95c-25.04,0-42.14,7.32-51.21,27.96Z"/>' +
+  '<path d="M1108.2,110.76v166.32h35.9V110.76h-35.9ZM1142.41,46.91c-4.4-4.66-9.83-6.96-16.28-6.96s-11.83,2.3-16.28,6.96c-4.46,4.45-6.66,9.78-6.66,15.98s2.2,11.62,6.66,16.28c4.66,4.45,10.09,6.66,16.28,6.66s11.52-2.2,15.98-6.66c4.66-4.66,6.96-10.09,6.96-16.28s-2.2-11.52-6.66-15.98Z"/>' +
+  '<path d="M1319.68,131.71c-16.85-16.85-37.58-25.24-62.16-25.24s-45.37,8.4-62.22,25.24c-17.05,17.1-25.6,37.84-25.6,62.22s8.55,45.11,25.6,62.22c16.85,16.85,37.59,25.24,62.22,25.24s45.32-8.4,62.16-25.24c17.1-17.1,25.6-37.84,25.6-62.22s-8.5-45.11-25.6-62.22ZM1294.44,231.51c-9.99,9.99-22.33,14.95-36.92,14.95s-26.93-4.97-36.92-14.95c-9.99-9.99-15-22.53-15-37.59s5.02-27.6,15-37.59c9.99-9.99,22.28-14.95,36.92-14.95s26.93,4.97,36.92,14.95c9.93,9.99,14.95,22.53,14.95,37.59s-5.02,27.6-14.95,37.59Z"/>' +
+  '<path d="M1505.1,124.9c-11.62-12.29-27.09-18.43-46.39-18.43-23.3,0-40.45,8.55-51.56,25.6v-21.3h-35.9v166.32h35.9v-89.15c0-15.72,3.79-27.65,11.32-35.74,7.53-8.09,17.87-12.14,30.93-12.14,11.52,0,20.64,3.33,27.29,9.99,6.66,6.66,9.99,16.18,9.99,28.57v98.47h35.9v-102.11c0-21.1-5.84-37.74-17.46-50.08Z"/>' +
+  '<path d="M794.92,110.76h-41.27v-46.55l-35.9,10.65v35.9h-30.62v34.62h93.88c7.68,0,13.91-6.23,13.91-13.91v-20.71Z"/>' +
+  '<path d="M753.64,145.38l-35.9,10.82v69.01c0,21.71,5.99,36.61,17.97,44.7,11.93,8.09,31.7,10.5,59.19,7.17v-32.26c-9.11.41-16.69.46-22.79.15-6.09-.36-10.7-2-13.83-5.02-3.12-2.97-4.66-7.89-4.66-14.75v-79.83Z"/>' +
+  '</g>' +
+  '<path fill="url(#fcm1)" d="M215.29,0v75.78c0,7.65-5.04,14.38-12.38,16.53L0,151.77v-75.78c0-7.65,5.04-14.38,12.38-16.53L215.29,0Z"/>' +
+  '<path fill="url(#fcm2)" d="M12.39,168.02c-7.34,2.15-12.39,8.88-12.39,16.53v80.48c0,10.45,5.57,19.88,14.24,25.04-7.82-18.36-4.58-33.26,28-42.13l55.25-16.18,64.62-18.91c7.34-2.15,12.39-8.88,12.39-16.54v-75.78L12.39,168.02Z"/>' +
+  '<path fill="url(#fcy1)" d="M14.25,290.09l.04.02s-.03-.02-.04-.03c0,0,0,0,0,.01Z"/>' +
+  '<path fill="url(#fcy2)" d="M42.25,247.95c-32.57,8.87-35.82,23.75-28.02,42.1l.05.05h0c4.44,1.93,8.99,3.58,13.63,4.94l57.94,16.97c5.82,1.71,11.65-2.66,11.65-8.72v-71.53l-55.25,16.18Z"/>' +
+  '</svg>';
 
 export class Chart {
   private container: HTMLElement;
@@ -46,6 +79,12 @@ export class Chart {
   private initialFit: 'recent' | 'all' = 'recent';
   /** Initial viewport as a percentage of the buffer (`(0, 100]`). `undefined` = fall back to `initialFit`. */
   private initialZoom: number | undefined = undefined;
+  /** "Powered by Finterion" attribution badge element. `null` when hidden. */
+  private brandingEl: HTMLAnchorElement | HTMLDivElement | null = null;
+  /** Dedicated row below the time axis that hosts the badge. `null` when hidden. */
+  private brandingRow: HTMLDivElement | null = null;
+  /** Resolved branding config; `null` means hidden. */
+  private branding: BrandingOptions | null = {};
   private onSeriesVisibilityChange: ChartOptions['onSeriesVisibilityChange'];
   private onPaneCollapseChange: ChartOptions['onPaneCollapseChange'];
   private static TIME_AXIS_HEIGHT = 28;
@@ -111,6 +150,7 @@ export class Chart {
     if (options.markers) this.markers = options.markers;
     if (options.viewport) this.viewport = options.viewport;
     this.applyDisplayOptions(options);
+    this.applyBranding(options.branding);
 
     this.attachEvents();
     this.observeResize();
@@ -265,6 +305,105 @@ export class Chart {
     this.applyPanelGap();
     this.applyTitleSpace();
     this.applyTimeAxisVisibility();
+    // Re-render the badge so its color tracks the current theme (unless the
+    // user pinned an explicit `color` in the branding config).
+    if (this.branding) this.applyBranding(this.branding);
+  }
+
+  /**
+   * Render (or remove) the "Powered by Finterion" attribution badge.
+   *
+   * Pass `false` to hide. The opt-out is honor-system: removing the badge
+   * is permitted only under the trademark policy in the LICENSE.
+   */
+  private applyBranding(input: ChartOptions['branding']) {
+    // Resolve config.
+    if (input === false) {
+      this.branding = null;
+    } else if (input === undefined || input === true) {
+      this.branding = {};
+    } else {
+      this.branding = { ...input };
+    }
+
+    // Tear down existing badge if present.
+    if (this.brandingEl) {
+      this.brandingEl.remove();
+      this.brandingEl = null;
+    }
+    if (this.brandingRow) {
+      this.brandingRow.remove();
+      this.brandingRow = null;
+    }
+    if (!this.branding) return;
+
+    const cfg = this.branding;
+    const text = cfg.text ?? 'Powered by';
+    const svgOrName = cfg.svg ?? DEFAULT_FINTERION_LOGO_SVG;
+    const href = cfg.href === undefined ? 'https://finterion.com' : cfg.href;
+    const position = cfg.position ?? 'bottom-left';
+    const opacity = cfg.opacity ?? 1;
+    const color = cfg.color ?? this.effectiveTheme.textDim;
+
+    // The badge lives in its own dedicated row below the time axis so it
+    // never overlaps chart data or axis labels. The `position` enum is
+    // collapsed to left/right alignment within that row (top-* values are
+    // treated as their bottom-* equivalents — the row is always at the
+    // bottom for visual consistency).
+    const alignRight = position === 'bottom-right' || position === 'top-right';
+
+    const row = document.createElement('div');
+    row.style.cssText = [
+      'position:relative',
+      'flex:0 0 20px',
+      'display:flex',
+      'align-items:center',
+      `justify-content:${alignRight ? 'flex-end' : 'flex-start'}`,
+      'padding:0 8px',
+      'pointer-events:auto',
+      'user-select:none',
+    ].join(';') + ';';
+
+    const tag = href ? 'a' : 'div';
+    const el = document.createElement(tag) as HTMLAnchorElement | HTMLDivElement;
+    if (href && el instanceof HTMLAnchorElement) {
+      el.href = href;
+      el.target = '_blank';
+      el.rel = 'noopener noreferrer';
+    }
+    el.setAttribute(
+      'style',
+      [
+        'display:inline-flex',
+        'align-items:center',
+        'gap:5px',
+        'line-height:1',
+        'cursor:' + (href ? 'pointer' : 'default'),
+        'text-decoration:none',
+        `color:${color}`,
+        `opacity:${opacity}`,
+        'transition:opacity 120ms ease-out',
+      ].join(';') + ';',
+    );
+    // The "Powered by" prefix is muted; the logo sits at full saturation
+    // and is nudged up ~1px so its visual centre lines up with the text
+    // baseline (the SVG paths' bounding box sits slightly low).
+    el.innerHTML =
+      `<span style="opacity:0.65;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px;letter-spacing:0.06em;text-transform:uppercase;line-height:1">${this.escapeHtml(text)}</span>` +
+      `<span style="display:inline-flex;align-items:center;transform:translateY(-1.5px)">${svgOrName}</span>`;
+    el.addEventListener('mouseenter', () => { el.style.opacity = String(Math.min(1, opacity + 0.15)); });
+    el.addEventListener('mouseleave', () => { el.style.opacity = String(opacity); });
+
+    row.appendChild(el);
+    this.brandingEl = el;
+    this.brandingRow = row;
+    this.chartCol.appendChild(row);
+  }
+
+  private escapeHtml(s: string): string {
+    return s.replace(/[&<>"']/g, (c) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    }[c]!));
   }
 
   private makePanelHooks(panelIndex: number): PanelHooks {
@@ -348,6 +487,7 @@ export class Chart {
     this.recomputeEffectiveTheme();
     this.applyBackground();
     this.root.style.color = this.theme.text;
+    if (this.branding) this.applyBranding(this.branding);
     this.markDirty('base', 'series', 'overlay');
   }
 

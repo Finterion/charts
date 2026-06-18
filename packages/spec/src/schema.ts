@@ -98,6 +98,23 @@ export const CHART_SPEC_SCHEMA = {
           ],
         },
         initialZoom: { type: 'number', exclusiveMinimum: 0, maximum: 100 },
+        branding: {
+          oneOf: [
+            { type: 'boolean' },
+            {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                text: { type: 'string' },
+                svg: { type: 'string' },
+                href: { type: ['string', 'null'] },
+                position: { enum: ['bottom-left', 'bottom-right', 'top-left', 'top-right'] },
+                opacity: { type: 'number', minimum: 0, maximum: 1 },
+                color: { $ref: '#/$defs/color' },
+              },
+            },
+          ],
+        },
       },
     },
     valuesRef: {

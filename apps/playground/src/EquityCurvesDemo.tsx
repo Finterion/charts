@@ -264,6 +264,12 @@ export function EquityCurvesDemo() {
             </div>
           </div>
         </Card>
+
+        {/* Code-snippet card — show how to define this chart in the three
+            supported surfaces (React, Python, plain HTML embed). */}
+        <div style={{ marginTop: spacing.lg }}>
+          <CodeSnippets />
+        </div>
       </div>
     </div>
   );
@@ -274,4 +280,220 @@ function median(values: number[]): number {
   const sorted = [...values].sort((a, b) => a - b);
   const mid = sorted.length >>> 1;
   return sorted.length % 2 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// "How do I build this chart?" — code samples for the three surfaces
+// (React, Python, plain HTML iframe). Static strings; nothing dynamic.
+// ──────────────────────────────────────────────────────────────────────
+
+type Lang = 'react' | 'python' | 'html';
+
+const SNIPPETS: Record<Lang, { label: string; subtitle: string; code: string }> = {
+  react: {
+    label: 'React',
+    subtitle: 'TypeScript · @finterion/charts-react',
+    code: `import { Chart } from '@finterion/charts-react';
+import type { PanelSpec } from '@finterion/charts-core';
+
+// Each algo: { id, label, color, values: Float32Array, cagr, maxDD }
+const [first, ...rest] = sortedCurves;
+
+const panels: PanelSpec[] = [
+  {
+    id: 'equity',
+    kind: 'indicator',
+    weight: 1,
+    title: \`\${curves.length} Algorithms\`,
+    indicator: {
+      id: first.id,
+      label: first.label,
+      values: first.values,
+      kind: 'line',
+      color: first.color,
+      yRange,           // [lo, hi] enveloping every curve
+      refLines: [1.0],  // breakeven
+    },
+    overlays: rest.map((c) => ({
+      id: c.id,
+      label: c.label,
+      values: c.values,
+      kind: 'line',
+      color: c.color,
+    })),
+  },
+];
+
+<Chart
+  data={bars}
+  panels={panels}
+  theme="finterion-light"
+  showLegend="auto"
+  legendPosition="right"
+  legendWidth={220}
+  initialFit="all"
+/>;`,
+  },
+  python: {
+    label: 'Python',
+    subtitle: 'Jupyter / Streamlit · finterion-charts',
+    code: `from finterion_charts import ChartSpec, Indicator
+import numpy as np
+
+# curves: list of dicts {id, label, color, values: np.ndarray, cagr}
+first, *rest = curves
+
+spec = (
+    ChartSpec(theme="finterion-light", legend_position="right")
+    .with_bars(time=time)               # daily timestamps, no OHLC needed
+    .add_panel(Indicator.panel(
+        id="equity",
+        weight=1,
+        title=f"{len(curves)} Algorithms",
+        values=first["values"],
+        label=first["label"],
+        color=first["color"],
+        ref_lines=[1.0],                # breakeven
+        y_range=(y_lo, y_hi),
+        overlays=[
+            Indicator(
+                id=c["id"], label=c["label"],
+                values=c["values"], color=c["color"], kind="line",
+            )
+            for c in rest
+        ],
+    ))
+)
+
+spec.show()                             # IPython display
+# spec.to_json("equity.json")           # share / persist
+# spec.embed_url()                      # https://charts.finterion.com/embed/#spec=…`,
+  },
+  html: {
+    label: 'Plain HTML',
+    subtitle: 'iframe embed · no build step',
+    code: `<!--
+  Drop this into any HTML page. The chart renders in a sandboxed iframe
+  hosted on charts.finterion.com — no bundler, npm, or pip required.
+  Replace the inline JSON with your own ChartSpec.
+-->
+<iframe
+  src="https://charts.finterion.com/embed/"
+  width="100%" height="460"
+  style="border:1px solid #d0d7de;border-radius:6px"
+  loading="lazy"
+  id="equity-frame"
+></iframe>
+
+<script>
+  const spec = {
+    version: 1,
+    data: { bars: { time: [/* unix ms timestamps */] } },
+    display: { theme: "finterion-light", legendPosition: "right" },
+    panels: [{
+      id: "equity",
+      kind: "indicator",
+      weight: 1,
+      title: "20 Algorithms",
+      indicator: {
+        id: "algo-0", label: "MeanRev-Z",
+        values: [/* Float32Array */], kind: "line", color: "#0969da",
+        refLines: [1.0], yRange: [0.7, 1.6],
+      },
+      overlays: [
+        { id: "algo-1", label: "Momentum-12-1",
+          values: [/* … */], kind: "line", color: "#8250df" },
+        // …18 more overlays
+      ],
+    }],
+  };
+  document.getElementById('equity-frame').onload = (e) =>
+    e.target.contentWindow.postMessage({ type: 'spec', spec }, '*');
+</script>`,
+  },
+};
+
+function CodeSnippets() {
+  const [lang, setLang] = useState<Lang>('react');
+  const [copied, setCopied] = useState(false);
+  const snippet = SNIPPETS[lang];
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(snippet.code);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1400);
+    } catch {
+      /* ignore clipboard errors (eg. insecure context) */
+    }
+  };
+
+  return (
+    <Card padding={0} style={{ overflow: 'hidden' }}>
+      <div style={{ padding: `${spacing.md}px ${spacing.lg}px` }}>
+        <CardHeader
+          title="Define this chart"
+          subtitle="Same ChartSpec, three surfaces. Pick the one that matches your stack."
+          right={
+            <button
+              type="button"
+              onClick={handleCopy}
+              style={{
+                fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: '0.06em',
+                textTransform: 'uppercase',
+                padding: '6px 10px',
+                background: copied ? colors.quantUpSubtle : colors.canvas,
+                color: copied ? colors.quantUp : colors.inkMuted,
+                border: `1px solid ${copied ? colors.quantUp : colors.hairline}`,
+                borderRadius: 4,
+                cursor: 'pointer',
+                transition: 'background 120ms, color 120ms, border-color 120ms',
+              }}
+            >
+              {copied ? 'Copied' : 'Copy'}
+            </button>
+          }
+        />
+        <ToggleGroup<Lang>
+          size="sm"
+          value={lang}
+          onChange={setLang}
+          options={[
+            { label: 'React', value: 'react' },
+            { label: 'Python', value: 'python' },
+            { label: 'HTML', value: 'html' },
+          ]}
+        />
+        <div
+          style={{
+            marginTop: spacing.sm,
+            fontSize: 11,
+            color: colors.inkMuted,
+            fontFamily: 'Inter, system-ui, sans-serif',
+          }}
+        >
+          {snippet.subtitle}
+        </div>
+      </div>
+      <pre
+        style={{
+          margin: 0,
+          padding: `${spacing.md}px ${spacing.lg}px`,
+          background: colors.surfaceConsole,
+          color: colors.onDark,
+          fontFamily: '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace',
+          fontSize: 12,
+          lineHeight: 1.55,
+          overflowX: 'auto',
+          borderTop: `1px solid ${colors.hairlineSoft}`,
+          tabSize: 2,
+        }}
+      >
+        <code>{snippet.code}</code>
+      </pre>
+    </Card>
+  );
 }

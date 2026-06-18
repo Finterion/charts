@@ -15,6 +15,7 @@ export type {
   HBarData,
   HistogramData,
   ScatterData,
+  BrandingOptions,
 } from './types';
 
 export { Chart, createChart } from './panels/chart';

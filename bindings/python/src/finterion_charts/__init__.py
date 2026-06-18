@@ -6,6 +6,7 @@ It does not render charts — it produces JSON that the browser-side engine
 """
 
 from .builder import (
+    Branding,
     ChartSpec,
     Display,
     HBar,
@@ -29,6 +30,7 @@ from .validator import ValidationResult, validate_schema, validate_spec
 
 __all__ = [
     "CHART_SPEC_SCHEMA",
+    "Branding",
     "ChartCapabilities",
     "ChartSpec",
     "Display",
@@ -54,4 +56,4 @@ __all__ = [
     "validate_spec",
 ]
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"

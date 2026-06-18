@@ -4,15 +4,15 @@ build-backend = "hatchling.build"
 
 [project]
 name = "finterion-charts"
-version = "0.2.0"
+version = "1.0.0"
 description = "Python binding for Finterion Charts — declarative ChartSpec builder, validator, and codec."
 readme = "README.md"
-license = { text = "MIT" }
+license = { text = "Finterion Community License 1.0 (source-available, not OSI-approved). See LICENSE file." }
 authors = [{ name = "Finterion" }]
 requires-python = ">=3.10"
 keywords = ["chart", "charts", "finance", "trading", "ohlc", "candlestick", "finterion"]
 classifiers = [
-    "License :: OSI Approved :: MIT License",
+    "License :: Other/Proprietary License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -41,6 +41,9 @@ packages = ["src/finterion_charts"]
 # scripts/build-python-embed-bundle.mjs at the repo root).
 artifacts = ["src/finterion_charts/_static/embed.html"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"../../LICENSE" = "finterion_charts/LICENSE"
+
 [tool.hatch.build.targets.sdist]
 include = [
     "src/finterion_charts",
@@ -49,6 +52,9 @@ include = [
     "tests",
     "examples",
 ]
+
+[tool.hatch.build.targets.sdist.force-include]
+"../../LICENSE" = "LICENSE"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

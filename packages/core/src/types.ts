@@ -312,4 +312,36 @@ export interface ChartOptions {
    * is never collapsible).
    */
   onPaneCollapseChange?: (panelId: string, collapsed: boolean) => void;
+  /**
+   * "Powered by Finterion" attribution badge.
+   *
+   * - `true` / `undefined` (default): shows the standard text badge in the
+   *   bottom-left corner, linking to https://finterion.com.
+   * - `false`: hides the badge. Hiding it requires either (a) a commercial
+   *   agreement with Finterion or (b) that you do not market your fork as
+   *   "Finterion Charts" — see the LICENSE for the trademark policy.
+   * - `BrandingOptions`: customize the badge contents. Pass `{ svg }` to
+   *   replace the wordmark with your own inline SVG (must include the
+   *   "Finterion" name — removing it falls under the trademark clause).
+   */
+  branding?: boolean | BrandingOptions;
+}
+
+/**
+ * Customise the "Powered by Finterion" badge. All fields are optional; missing
+ * fields fall back to defaults.
+ */
+export interface BrandingOptions {
+  /** Override the leading text. Default: `"Powered by"`. */
+  text?: string;
+  /** Inline SVG markup for the wordmark/logo (no `<svg>` outer wrapper required — we'll wrap if missing). Default: text label `"Finterion"`. */
+  svg?: string;
+  /** Override the destination URL. Default: `https://finterion.com`. Set to `null` to make the badge non-clickable. */
+  href?: string | null;
+  /** Where on the chart the badge sits. Default: `'bottom-left'`. */
+  position?: 'bottom-left' | 'bottom-right' | 'top-left' | 'top-right';
+  /** Badge opacity. Default: `0.55`. Hover bumps to `1`. */
+  opacity?: number;
+  /** Override badge text/foreground color. Defaults to `theme.textDim`. */
+  color?: string;
 }

@@ -1,6 +1,6 @@
 {
   "name": "@finterion/charts-spec",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "description": "JSON-only ChartSpec schema, validator and compiler for Finterion Charts. Designed for LLM agents and forum/iframe embedding.",
   "keywords": [
     "chart",
@@ -10,7 +10,7 @@
     "llm",
     "finance"
   ],
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "author": "Finterion",
   "homepage": "https://github.com/Finterion/charts/tree/main/packages/spec",
   "repository": {

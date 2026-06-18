@@ -1,5 +1,16 @@
 # @finterion/charts-react
 
+## 1.0.0
+
+### Major Changes
+
+- **Licence change.** This package is now distributed under the **Finterion Community License v1.0** (source-available, not OSI-approved). Versions prior to 1.0.0 remain available under MIT. See `LICENSE` for the full text.
+
+### Minor Changes
+
+- `<Chart>` and `<ChartFromSpec>` now accept a `branding` prop forwarded to the core engine.
+- Fix: `initialZoom` prop is no longer dropped silently.
+
 ## 0.2.0
 
 ### Minor Changes

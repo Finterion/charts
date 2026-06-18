@@ -52,3 +52,12 @@ url = spec.embed_url()            # https://charts.finterion.com/embed/#spec=…
 
 See [`examples/aapl_supertrend.py`](examples/aapl_supertrend.py) for an end-to-end
 example with OHLC, RSI, SuperTrend overlay, and buy/sell markers.
+
+## Licence
+
+**Finterion Community Licence v1.0** (source-available, not OSI-approved).
+Free to use — including commercially — as long as the default "Powered by
+Finterion" badge stays visible on rendered charts. To remove the badge or to
+build a competing hosted charting service, you need a commercial licence:
+contact licensing@finterion.com. See the `LICENSE` file shipped with the
+wheel, or the [full text on GitHub](https://github.com/Finterion/charts/blob/main/LICENSE).

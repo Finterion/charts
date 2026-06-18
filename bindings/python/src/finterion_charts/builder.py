@@ -557,6 +557,45 @@ class Marker:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+BrandingPosition = Literal["bottom-left", "bottom-right", "top-left", "top-right"]
+
+
+@dataclass
+class Branding:
+    """Customise the "Powered by Finterion" attribution badge.
+
+    All fields are optional. Pass an instance to ``ChartSpec(branding=...)``
+    to override the default text/SVG/position. Use ``branding=False`` on
+    ``ChartSpec`` to hide it entirely — subject to the LICENSE trademark
+    policy (open-source forks must keep the badge unless they have a
+    commercial agreement with Finterion or they no longer market the
+    product as "Finterion Charts").
+    """
+
+    text: str | None = None
+    svg: str | None = None
+    href: str | None = None
+    position: BrandingPosition | None = None
+    opacity: float | None = None
+    color: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {}
+        if self.text is not None:
+            d["text"] = self.text
+        if self.svg is not None:
+            d["svg"] = self.svg
+        if self.href is not None:
+            d["href"] = self.href
+        if self.position is not None:
+            d["position"] = self.position
+        if self.opacity is not None:
+            d["opacity"] = float(self.opacity)
+        if self.color is not None:
+            d["color"] = self.color
+        return d
+
+
 @dataclass
 class Display:
     theme: ThemeName | Theme | None = None
@@ -573,6 +612,11 @@ class Display:
     #: ``100`` = fully zoomed out (all bars). Smaller values zoom IN
     #: (e.g. ``25`` shows the most recent quarter). Range: ``(0, 100]``.
     initial_zoom: float | None = None
+    #: "Powered by Finterion" attribution badge.
+    #: - ``None`` (default): show the standard badge.
+    #: - ``False``: hide the badge (see Branding docstring re: trademark policy).
+    #: - ``Branding(...)`` instance: customize the badge.
+    branding: bool | Branding | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {}
@@ -604,6 +648,15 @@ class Display:
                     "100 = fully zoomed out (all bars visible)."
                 )
             d["initialZoom"] = iz
+        if self.branding is not None:
+            if isinstance(self.branding, bool):
+                d["branding"] = self.branding
+            elif isinstance(self.branding, Branding):
+                d["branding"] = self.branding.to_dict()
+            else:
+                raise TypeError(
+                    f"branding must be bool or Branding, got {type(self.branding).__name__}"
+                )
         return d
 
 
@@ -694,6 +747,7 @@ class ChartSpec:
         show_time_axis: bool | None = None,
         show_legend: bool | Literal["auto"] | None = None,
         initial_zoom: float | None = None,
+        branding: bool | Branding | None = None,
     ) -> None:
         self.display = Display(
             theme=theme,
@@ -707,6 +761,7 @@ class ChartSpec:
             show_time_axis=show_time_axis,
             show_legend=show_legend,
             initial_zoom=initial_zoom,
+            branding=branding,
         )
         self.bars = None
         self.columns = {}

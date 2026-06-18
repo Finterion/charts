@@ -114,6 +114,34 @@ CHART_SPEC_SCHEMA: dict[str, Any] = {
                     "exclusiveMinimum": 0,
                     "maximum": 100,
                 },
+                "branding": {
+                    "oneOf": [
+                        {"type": "boolean"},
+                        {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "text": {"type": "string"},
+                                "svg": {"type": "string"},
+                                "href": {"type": ["string", "null"]},
+                                "position": {
+                                    "enum": [
+                                        "bottom-left",
+                                        "bottom-right",
+                                        "top-left",
+                                        "top-right",
+                                    ]
+                                },
+                                "opacity": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 1,
+                                },
+                                "color": {"$ref": "#/$defs/color"},
+                            },
+                        },
+                    ]
+                },
             },
         },
         "valuesRef": {

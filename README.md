@@ -163,3 +163,21 @@ embed apps are `private` and never published.
 4. **Viewport culling.** Iterate only visible bars; pan/zoom is O(viewport), not O(history).
 5. **Two surfaces.** A typed imperative API (`@finterion/charts-core`) and a JSON declarative API (`@finterion/charts-spec`). The JSON form is what LLMs and forum embeds use; it compiles to the typed form.
 6. **Tree-shakeable.** `sideEffects: false`, ESM-first.
+
+---
+
+## Licence
+
+Finterion Charts is released under the **[Finterion Community Licence v1.0](LICENSE)** — a source-available licence (not OSI-approved "open source").
+
+**Free for everyone, with one condition:**
+
+- Use it in any project, including commercial products and internal tools
+- Fork it, modify it, redistribute it
+- Self-host the embed bundle, ship the Python wheel, vendor the source
+- **You must keep the "Powered by Finterion" badge visible** on every rendered chart
+- You may not strip the badge, market a fork as "Finterion Charts", or build a competing hosted charting service on top of it
+
+**Want to remove the badge?** That's what the **commercial licence** is for. Email [licensing@finterion.com](mailto:licensing@finterion.com).
+
+Finterion's own websites and products operate under an implicit commercial licence and run the library with `branding={false}`. See [LICENSE](LICENSE) for the full text.

@@ -15,6 +15,7 @@
 export { CHART_SPEC_SCHEMA } from './schema';
 
 import type {
+  BrandingOptions,
   ChartOptions,
   HBarData,
   HeatmapData,
@@ -32,7 +33,10 @@ import type {
 } from '@finterion/charts-core';
 
 // Re-export so consumers can `import type { LineStyle } from '@finterion/charts-spec'`.
-export type { LineStyle, ThemeName, IndicatorKind } from '@finterion/charts-core';
+export type { LineStyle, ThemeName, IndicatorKind, BrandingOptions } from '@finterion/charts-core';
+
+/** JSON form of `BrandingOptions` — same shape, alias for spec consumers. */
+export type BrandingSpec = BrandingOptions;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1.  Spec types  (pure JSON — no functions, no typed arrays)
@@ -90,6 +94,12 @@ export interface ChartSpec {
      * (~200 bars by default).
      */
     initialZoom?: number;
+    /**
+     * "Powered by Finterion" attribution badge. Default: shown.
+     * Set to `false` to hide the badge — subject to the LICENSE
+     * trademark policy. Pass an object to customize the badge contents.
+     */
+    branding?: boolean | BrandingSpec;
   };
 
   panels: PanelSpecSpec[];
@@ -311,6 +321,7 @@ export function compileSpec(spec: ChartSpec): CompiledChart {
     ...(spec.display?.showTimeAxis !== undefined ? { showTimeAxis: spec.display.showTimeAxis } : {}),
     ...(spec.display?.showLegend !== undefined ? { showLegend: spec.display.showLegend } : {}),
     ...(spec.display?.initialZoom !== undefined ? { initialZoom: spec.display.initialZoom } : {}),
+    ...(spec.display?.branding !== undefined ? { branding: spec.display.branding } : {}),
   };
 
   return { data, panels, options, markers: spec.data?.markers };

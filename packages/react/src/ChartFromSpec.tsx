@@ -76,6 +76,7 @@ export function ChartFromSpec({ spec, className, style, fallback }: ChartFromSpe
       titleSpace={options.titleSpace}
       showTimeAxis={options.showTimeAxis}
       initialZoom={options.initialZoom}
+      branding={options.branding}
     />
   );
 }
