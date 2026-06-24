@@ -1,6 +1,6 @@
 {
   "name": "@finterion/charts-spec",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "JSON-only ChartSpec schema, validator and compiler for Finterion Charts. Designed for LLM agents and forum/iframe embedding.",
   "keywords": [
     "chart",
