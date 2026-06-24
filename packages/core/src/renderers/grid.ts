@@ -163,6 +163,7 @@ export function drawTimeAxis(
   viewport: Viewport,
   times: Float64Array,
   theme: ThemeTokens,
+  timeFormatter?: (t: number) => string,
 ) {
   ctx.clearRect(0, 0, width, height);
   if (viewport.endIdx < viewport.startIdx) return;
@@ -195,7 +196,9 @@ export function drawTimeAxis(
     ctx.moveTo(x, 0);
     ctx.lineTo(x, 4);
     ctx.stroke();
-    const label = formatTimeLabel(t, showDate, spansYears, stepMs);
+    const label = timeFormatter
+      ? timeFormatter(t)
+      : formatTimeLabel(t, showDate, spansYears, stepMs);
     ctx.textAlign = 'center';
     const tw = ctx.measureText(label).width;
     const cx = Math.max(tw / 2 + 2, Math.min(width - tw / 2 - 2, x));
@@ -255,4 +258,36 @@ function formatTimeLabel(t: number, showDate: boolean, spansYears: boolean, step
     return `${pad2(d.getUTCMonth() + 1)}/${pad2(d.getUTCDate())} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
   }
   return `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
+}
+
+const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * Resolve a user-supplied `timeFormat` option (format string or callback) into
+ * a plain `(t: number) => string` function. Returns `undefined` when the input
+ * is nullish so callers can fall through to the built-in formatter.
+ */
+export function resolveTimeFormatter(
+  fmt: string | ((t: number) => string) | undefined,
+): ((t: number) => string) | undefined {
+  if (fmt == null) return undefined;
+  if (typeof fmt === 'function') return fmt;
+
+  // Format-string implementation. Supported tokens:
+  //   YYYY  full year          YY  2-digit year
+  //   MM    zero-padded month  MMM short month name
+  //   DD    zero-padded day
+  //   HH    zero-padded hour   mm  zero-padded minute
+  return (t: number) => {
+    const d = new Date(t);
+    const pad2 = (n: number) => String(n).padStart(2, '0');
+    return fmt
+      .replace('YYYY', String(d.getUTCFullYear()))
+      .replace('YY', String(d.getUTCFullYear()).slice(-2))
+      .replace('MMM', MONTH_SHORT[d.getUTCMonth()]!)
+      .replace('MM', pad2(d.getUTCMonth() + 1))
+      .replace('DD', pad2(d.getUTCDate()))
+      .replace('HH', pad2(d.getUTCHours()))
+      .replace('mm', pad2(d.getUTCMinutes()));
+  };
 }

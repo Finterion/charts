@@ -6,10 +6,13 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { App } from './App';
+import { LineChartDemo } from './LineChartDemo';
+import { TrainTestDemo } from './TrainTestDemo';
 import { SuperTrendDemo } from './SuperTrendDemo';
 import { PortfolioOverview } from './PortfolioOverview';
 import { EquityCurvesDemo } from './EquityCurvesDemo';
 import { TerminalGreenDemo } from './TerminalGreenDemo';
+import { LoadingDemo } from './LoadingDemo';
 import { colors, radii, spacing } from './finterion/tokens';
 import {
   PLAYGROUND_THEMES,
@@ -30,6 +33,18 @@ const SECTIONS: Section[] = [
     label: 'Default',
     description: 'BTC/USD synthetic feed · candles, line, area',
     Component: App,
+  },
+  {
+    id: 'line-chart',
+    label: 'Line Chart',
+    description: 'BTC/USD daily line chart · 143 real bars',
+    Component: LineChartDemo,
+  },
+  {
+    id: 'train-test',
+    label: 'Train / Test',
+    description: 'BTC/USD 2022–2023 · train vs test split',
+    Component: TrainTestDemo,
   },
   {
     id: 'equity',
@@ -54,6 +69,12 @@ const SECTIONS: Section[] = [
     label: 'Terminal',
     description: 'Phosphor-green WSB-style strategy vs SPY',
     Component: TerminalGreenDemo,
+  },
+  {
+    id: 'loading',
+    label: 'Loading',
+    description: 'Spinner overlay while data is in-flight',
+    Component: LoadingDemo,
   },
 ];
 

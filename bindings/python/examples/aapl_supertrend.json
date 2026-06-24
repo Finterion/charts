@@ -2277,46 +2277,45 @@
       {
         "time": 1708300800.0,
         "side": "buy",
-        "price": 185.4415312640595,
+        "price": 178.89563165073142,
         "label": "B"
       },
       {
         "time": 1720051200.0,
         "side": "buy",
-        "price": 171.68440167457132,
+        "price": 164.62578375442914,
         "label": "B"
       },
       {
         "time": 1723852800.0,
         "side": "buy",
-        "price": 173.087646691616,
+        "price": 167.037815245676,
         "label": "B"
       },
       {
         "time": 1711411200.0,
         "side": "sell",
-        "price": 182.07649839853548,
+        "price": 187.70908391140082,
         "label": "S"
       },
       {
         "time": 1722297600.0,
         "side": "sell",
-        "price": 169.2882133542161,
+        "price": 176.4660383817777,
         "label": "S"
       },
       {
         "time": 1724630400.0,
         "side": "sell",
-        "price": 168.39264641710415,
+        "price": 174.8511332939292,
         "label": "S"
       }
     ]
   },
   "display": {
-    "theme": "finterion-dark",
-    "background": "#131722",
-    "gridColor": "#494d57",
-    "gridStyle": "horizontal"
+    "theme": "terminal-dark",
+    "gridStyle": "horizontal",
+    "initialZoom": 50.0
   },
   "panels": [
     {
@@ -2332,7 +2331,8 @@
           },
           "kind": "line",
           "color": "#00ffa3",
-          "glow": "rgba(0,255,163,0.55)"
+          "glow": "rgba(0,255,163,0.55)",
+          "lineStyle": "solid"
         },
         {
           "values": {
@@ -2340,7 +2340,8 @@
           },
           "kind": "line",
           "color": "#ff3d6e",
-          "glow": "rgba(255,61,110,0.55)"
+          "glow": "rgba(255,61,110,0.55)",
+          "lineStyle": "solid"
         }
       ]
     },

@@ -53,8 +53,8 @@ export const terminalDark: ThemeTokens = {
   upGlow: 'rgba(0, 255, 55, 0.55)',
   down: '#ff3d6e',
   downGlow: 'rgba(255, 61, 110, 0.45)',
-  accent: '#00ffd1',
-  accentGlow: 'rgba(0, 255, 209, 0.5)',
+  accent: '#00ff37',
+  accentGlow: 'rgba(0, 255, 55, 0.5)',
   magenta: '#ff2dd1',
   lime: '#a3ff12',
 };
@@ -75,8 +75,8 @@ export const terminalLight: ThemeTokens = {
   upGlow: 'rgba(42, 122, 31, 0.35)',
   down: '#b8240f',
   downGlow: 'rgba(184, 36, 15, 0.35)',
-  accent: '#8a4a00',
-  accentGlow: 'rgba(138, 74, 0, 0.35)',
+  accent: '#2a7a1f',
+  accentGlow: 'rgba(42, 122, 31, 0.35)',
   magenta: '#7a1f5a',
   lime: '#5a7a1f',
 };

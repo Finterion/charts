@@ -59,7 +59,24 @@ export function renderIndicator(layout: PanelLayout, series: IndicatorSeries) {
   }
 
   ctx.save();
-  if (series.kind === 'band' && series.lowerValues) {
+  if (series.kind === 'background') {
+    // Pixel-space fill: x is data-driven (bar edges), y always spans 0→height.
+    // `values` is treated as a 1/NaN mask — any finite value = active bar.
+    const bw = bandWidth(viewport, width);
+    ctx.fillStyle = series.color;
+    let runStart = -1;
+    for (let i = s; i <= e + 1; i++) {
+      const active = i <= e && Number.isFinite(series.values[i]!);
+      if (active && runStart < 0) {
+        runStart = i;
+      } else if (!active && runStart >= 0) {
+        const x0 = xCenter(runStart, viewport, width) - bw / 2;
+        const x1 = xCenter(i - 1, viewport, width) + bw / 2;
+        ctx.fillRect(x0, 0, x1 - x0, height);
+        runStart = -1;
+      }
+    }
+  } else if (series.kind === 'band' && series.lowerValues) {
     const lower = series.lowerValues;
     const grad = ctx.createLinearGradient(0, 0, 0, height);
     grad.addColorStop(0, series.glow ?? series.color);

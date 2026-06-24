@@ -52,7 +52,7 @@ export interface TradeMarker {
   label?: string;
 }
 
-export type IndicatorKind = 'line' | 'histogram' | 'area' | 'band';
+export type IndicatorKind = 'line' | 'histogram' | 'area' | 'band' | 'background';
 
 /**
  * Stroke style for line-based indicator kinds (`line`, `area`, `band`).
@@ -312,6 +312,44 @@ export interface ChartOptions {
    * is never collapsible).
    */
   onPaneCollapseChange?: (panelId: string, collapsed: boolean) => void;
+  /**
+   * Enable or disable mouse/touch pan and zoom interactions. Default `true`.
+   * Set to `false` for static charts (e.g. a train/test preview where zooming
+   * would obscure segment boundaries).
+   */
+  interactive?: boolean;
+  /**
+   * Custom time-axis label formatter.
+   *
+   * Two forms are accepted:
+   *
+   * **Callback** — receives a ms-epoch timestamp and must return the label
+   * string. Called once per visible tick and must be fast (no async).
+   *
+   * ```ts
+   * timeFormat: (t) => new Date(t).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+   * ```
+   *
+   * **Format string** — a subset of the common token syntax:
+   * | Token | Output example |
+   * |-------|---------------|
+   * | `YYYY` | 2023 |
+   * | `YY`   | 23 |
+   * | `MM`   | 03 |
+   * | `MMM`  | Mar |
+   * | `DD`   | 05 |
+   * | `HH`   | 14 |
+   * | `mm`   | 07 |
+   *
+   * ```ts
+   * timeFormat: 'MMM YYYY'   // → "Mar 2023"
+   * timeFormat: 'DD/MM/YYYY' // → "05/03/2023"
+   * ```
+   *
+   * When omitted the built-in auto-ranging formatter is used (adapts from
+   * `HH:mm` up to `YYYY-MM` depending on the visible span).
+   */
+  timeFormat?: string | ((t: number) => string);
   /**
    * "Powered by Finterion" attribution badge.
    *

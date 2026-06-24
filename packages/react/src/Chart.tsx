@@ -1,7 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import {
   Chart as CoreChart,
   createBuffer,
+  resolveTheme,
   type BrandingOptions,
   type ChartOptions,
   type OHLC,
@@ -73,8 +74,71 @@ export interface ChartProps {
    * `BrandingOptions` object to customize text/SVG/position/colour.
    */
   branding?: boolean | BrandingOptions;
+  /** Disable mouse/touch pan and zoom. Default `true`. Set to `false` for static charts. */
+  interactive?: boolean;
+  /**
+   * Custom time-axis label format. Accepts a format string (e.g. `'MMM YYYY'`,
+   * `'DD/MM/YYYY'`) or a `(t: number) => string` callback receiving a
+   * ms-epoch timestamp. When omitted the built-in adaptive formatter is used.
+   */
+  timeFormat?: string | ((t: number) => string);
+  /**
+   * When `true`, renders a semi-transparent overlay with a spinner on top of
+   * the chart. Use while data is being fetched or computed. The chart engine
+   * stays mounted so there is no remount cost when loading transitions to false.
+   */
+  loading?: boolean;
   className?: string;
   style?: React.CSSProperties;
+}
+
+// ----------------------------------------------------------------------------
+// MUI-style circular progress spinner, theme-aware
+// ----------------------------------------------------------------------------
+const RADIUS = 20;
+const CIRCUMFERENCE = 2 * Math.PI * RADIUS; // ~125.66
+
+function ChartSpinner({ theme }: { theme?: ThemeTokens | ThemeName }) {
+  const color = useMemo(() => resolveTheme(theme).accent, [theme]);
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        inset: 0,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'radial-gradient(ellipse at center, rgba(0,0,0,0.28) 0%, rgba(0,0,0,0.08) 70%, transparent 100%)',
+        borderRadius: 'inherit',
+        zIndex: 10,
+      }}
+    >
+      <style>{`
+        @keyframes _fi-rotate { 0% { transform: rotate(-90deg) } 100% { transform: rotate(270deg) } }
+        @keyframes _fi-dash {
+          0%   { stroke-dasharray: ${CIRCUMFERENCE * 0.05}px,${CIRCUMFERENCE}px; stroke-dashoffset: 0 }
+          50%  { stroke-dasharray: ${CIRCUMFERENCE * 0.75}px,${CIRCUMFERENCE}px; stroke-dashoffset: ${-CIRCUMFERENCE * 0.25}px }
+          100% { stroke-dasharray: ${CIRCUMFERENCE * 0.75}px,${CIRCUMFERENCE}px; stroke-dashoffset: ${-CIRCUMFERENCE}px }
+        }
+      `}</style>
+      <svg
+        width="44"
+        height="44"
+        viewBox="0 0 44 44"
+        fill="none"
+        style={{ animation: '_fi-rotate 1.4s linear infinite', display: 'block' }}
+      >
+        <circle
+          cx="22" cy="22" r={RADIUS}
+          stroke={color}
+          strokeWidth="3.6"
+          strokeLinecap="round"
+          fill="none"
+          style={{ animation: `_fi-dash 1.4s ease-in-out infinite` }}
+        />
+      </svg>
+    </div>
+  );
 }
 
 export function Chart(props: ChartProps) {
@@ -106,6 +170,8 @@ export function Chart(props: ChartProps) {
       onSeriesVisibilityChange: props.onSeriesVisibilityChange,
       onPaneCollapseChange: props.onPaneCollapseChange,
       branding: props.branding,
+      interactive: props.interactive,
+      timeFormat: props.timeFormat,
     };
     chartRef.current = new CoreChart(containerRef.current, opts);
     return () => {
@@ -162,5 +228,10 @@ export function Chart(props: ChartProps) {
     });
   }, [props.panelGap, props.titleColor, props.titlePadding, props.titleFontSize, props.titleSpace, props.showTimeAxis, props.gridStyle, props.background, props.gridColor, props.showLegend, props.legendPosition, props.legendWidth, props.legendMaxHeight, props.onSeriesVisibilityChange, props.onPaneCollapseChange]);
 
-  return <div ref={containerRef} className={props.className} style={{ width: '100%', height: '100%', ...props.style }} />;
+  return (
+    <div style={{ position: 'relative', width: '100%', height: '100%', ...props.style }} className={props.className}>
+      <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+      {props.loading && <ChartSpinner theme={props.theme} />}
+    </div>
+  );
 }

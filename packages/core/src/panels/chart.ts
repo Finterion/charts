@@ -4,7 +4,7 @@ import { Panel, isTimePanel, type LegendMode, type PanelHooks } from './panel';
 import { attachPanZoom } from '../interactions/panZoom';
 import { xCenter } from '../renderers/layout';
 import type { TitleStyle } from '../renderers/grid';
-import { computeTimeTicks, drawTimeAxis } from '../renderers/grid';
+import { computeTimeTicks, drawTimeAxis, resolveTimeFormatter } from '../renderers/grid';
 import type { GridStyle } from '../renderers/grid';
 
 /**
@@ -62,6 +62,8 @@ export class Chart {
   private rafQueued = false;
   private resizeObserver: ResizeObserver | null = null;
   private detachPanZoom: (() => void) | null = null;
+  private interactive = true;
+  private timeFormatter: ((t: number) => string) | undefined = undefined;
   private panelGap = 0;
   private titleStyle: TitleStyle = {};
   private titleSpace = 0;
@@ -151,6 +153,13 @@ export class Chart {
     if (options.viewport) this.viewport = options.viewport;
     this.applyDisplayOptions(options);
     this.applyBranding(options.branding);
+    if (options.interactive === false) {
+      this.interactive = false;
+      this.eventSurface.style.cursor = 'default';
+    }
+    if (options.timeFormat !== undefined) {
+      this.timeFormatter = resolveTimeFormatter(options.timeFormat);
+    }
 
     this.attachEvents();
     this.observeResize();
@@ -355,6 +364,7 @@ export class Chart {
     const row = document.createElement('div');
     row.style.cssText = [
       'position:relative',
+      'z-index:20',
       'flex:0 0 20px',
       'display:flex',
       'align-items:center',
@@ -510,12 +520,14 @@ export class Chart {
   // ---- internals ----
 
   private attachEvents() {
-    this.detachPanZoom = attachPanZoom(this.eventSurface, {
-      getDataLength: () => this.buf?.length ?? 0,
-      getViewport: () => this.viewport,
-      setViewport: (vp) => this.setViewport(vp),
-      getWidth: () => this.eventSurface.getBoundingClientRect().width,
-    });
+    if (this.interactive) {
+      this.detachPanZoom = attachPanZoom(this.eventSurface, {
+        getDataLength: () => this.buf?.length ?? 0,
+        getViewport: () => this.viewport,
+        setViewport: (vp) => this.setViewport(vp),
+        getWidth: () => this.eventSurface.getBoundingClientRect().width,
+      });
+    }
 
     this.eventSurface.addEventListener('pointermove', (e) => this.onMove(e));
     this.eventSurface.addEventListener('pointerleave', () => {
@@ -525,18 +537,20 @@ export class Chart {
       this.markDirty('overlay');
     });
 
-    this.attachAxisDrag(this.rightAxis, 'y');
-    this.attachAxisDrag(this.bottomAxis, 'x');
-    this.rightAxis.addEventListener('dblclick', () => {
-      for (const p of this.panels) p.yScale = 1;
-      this.markDirty('base', 'series');
-    });
-    this.bottomAxis.addEventListener('dblclick', () => {
-      const n = this.buf?.length ?? 0;
-      if (!n) return;
-      const span = Math.min(200, n - 1);
-      this.setViewport({ startIdx: Math.max(0, n - 1 - span), endIdx: n - 1 });
-    });
+    if (this.interactive) {
+      this.attachAxisDrag(this.rightAxis, 'y');
+      this.attachAxisDrag(this.bottomAxis, 'x');
+      this.rightAxis.addEventListener('dblclick', () => {
+        for (const p of this.panels) p.yScale = 1;
+        this.markDirty('base', 'series');
+      });
+      this.bottomAxis.addEventListener('dblclick', () => {
+        const n = this.buf?.length ?? 0;
+        if (!n) return;
+        const span = Math.min(200, n - 1);
+        this.setViewport({ startIdx: Math.max(0, n - 1 - span), endIdx: n - 1 });
+      });
+    }
   }
 
   private attachAxisDrag(target: HTMLElement, axis: 'x' | 'y') {
@@ -731,6 +745,7 @@ export class Chart {
       this.viewport,
       this.buf.time,
       this.effectiveTheme,
+      this.timeFormatter,
     );
   }
 

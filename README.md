@@ -21,6 +21,34 @@ Plus two apps:
 
 ---
 
+## Installation
+
+### JavaScript / TypeScript
+
+```bash
+# npm
+npm install @finterion/charts-core @finterion/charts-react @finterion/charts-spec
+
+# pnpm
+pnpm add @finterion/charts-core @finterion/charts-react @finterion/charts-spec
+```
+
+| Package | npm |
+| --- | --- |
+| `@finterion/charts-core` | [![npm](https://img.shields.io/npm/v/@finterion/charts-core)](https://www.npmjs.com/package/@finterion/charts-core) |
+| `@finterion/charts-react` | [![npm](https://img.shields.io/npm/v/@finterion/charts-react)](https://www.npmjs.com/package/@finterion/charts-react) |
+| `@finterion/charts-spec` | [![npm](https://img.shields.io/npm/v/@finterion/charts-spec)](https://www.npmjs.com/package/@finterion/charts-spec) |
+
+### Python
+
+```bash
+pip install finterion-charts
+```
+
+[![PyPI](https://img.shields.io/pypi/v/finterion-charts)](https://pypi.org/project/finterion-charts/)
+
+---
+
 ## Quick start
 
 ### Imperative React chart
