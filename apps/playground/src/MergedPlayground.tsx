@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { App } from './App';
 import { LineChartDemo } from './LineChartDemo';
+import { MonthlyChartDemo } from './MonthlyChartDemo';
 import { TrainTestDemo } from './TrainTestDemo';
 import { SuperTrendDemo } from './SuperTrendDemo';
 import { PortfolioOverview } from './PortfolioOverview';
@@ -39,6 +40,12 @@ const SECTIONS: Section[] = [
     label: 'Line Chart',
     description: 'BTC/USD daily line chart · 143 real bars',
     Component: LineChartDemo,
+  },
+  {
+    id: 'monthly-returns',
+    label: 'Monthly Returns',
+    description: 'Synthetic 11-year monthly returns heatmap · terminal-green style',
+    Component: MonthlyChartDemo,
   },
   {
     id: 'train-test',

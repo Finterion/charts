@@ -262,16 +262,67 @@ function formatTimeLabel(t: number, showDate: boolean, spansYears: boolean, step
 
 const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+/** Compact elapsed-duration formatter — used by the `'duration'` preset.
+ *
+ * Treats the ms value as an elapsed duration since t=0 (not a wall-clock
+ * timestamp) and produces short, tick-friendly labels:
+ *
+ *   0                    → "0"
+ *   3 600 000            → "1h"
+ *   86 400 000           → "1d"
+ *   30 * 86 400 000      → "1M"
+ *   90 * 86 400 000      → "3M"
+ *   365 * 86 400 000     → "1Y"
+ *   365d + 90d           → "1Y 3M"
+ *
+ * Approximations follow the same calendar buckets the axis step ladder uses
+ * (1 month ≈ 30d, 1 year ≈ 365d), so ticks land on clean labels when the
+ * synthetic time axis is built via `alignByDuration` with daily bars. */
+export function formatDurationLabel(ms: number): string {
+  if (!Number.isFinite(ms)) return '';
+  const sign = ms < 0 ? '-' : '';
+  let s = Math.round(Math.abs(ms) / 1000);
+  if (s === 0) return '0';
+  const Y = 365 * 24 * 3600;
+  const M = 30 * 24 * 3600;
+  const D = 24 * 3600;
+  const H = 3600;
+  const MIN = 60;
+  const y = Math.floor(s / Y); s -= y * Y;
+  const mo = Math.floor(s / M); s -= mo * M;
+  const d = Math.floor(s / D); s -= d * D;
+  const h = Math.floor(s / H); s -= h * H;
+  const mi = Math.floor(s / MIN); s -= mi * MIN;
+  const parts: string[] = [];
+  if (y) parts.push(`${y}Y`);
+  if (mo) parts.push(`${mo}M`);
+  if (parts.length < 2 && d) parts.push(`${d}d`);
+  if (parts.length < 2 && h) parts.push(`${h}h`);
+  if (parts.length < 2 && mi) parts.push(`${mi}m`);
+  if (parts.length < 2 && s) parts.push(`${s}s`);
+  return sign + (parts.slice(0, 2).join(' ') || '0');
+}
+
 /**
  * Resolve a user-supplied `timeFormat` option (format string or callback) into
  * a plain `(t: number) => string` function. Returns `undefined` when the input
  * is nullish so callers can fall through to the built-in formatter.
+ *
+ * Two special preset strings are recognised:
+ *
+ *   - `'duration'`  — format ms values as elapsed durations (`"6M"`, `"1Y 3M"`,
+ *                     `"12d"`). Use together with `alignByDuration` when
+ *                     overlaying series that don't share a wall-clock date.
+ *
+ * Any other string is parsed as a token template — see the docstring on
+ * `ChartOptions.timeFormat`.
  */
 export function resolveTimeFormatter(
   fmt: string | ((t: number) => string) | undefined,
 ): ((t: number) => string) | undefined {
   if (fmt == null) return undefined;
   if (typeof fmt === 'function') return fmt;
+  if (fmt === 'duration') return formatDurationLabel;
 
   // Format-string implementation. Supported tokens:
   //   YYYY  full year          YY  2-digit year

@@ -1,12 +1,18 @@
 import { useMemo, useState } from 'react';
 import { Chart } from '@finterion/charts-react';
-import type { IndicatorSeries, OHLC, PanelSpec } from '@finterion/charts-core';
+import { alignByDuration, type IndicatorSeries, type OHLC, type PanelSpec } from '@finterion/charts-core';
 import { TopBar, Card, CardHeader, KpiTile, ToggleGroup, Overline } from './finterion/components';
 import { colors, spacing } from './finterion/tokens';
 import { useChartTheme } from './finterion/themeContext';
 
-const N_BARS = 504; // ~2 years of trading days
 const N_ALGOS = 20;
+const DAY_MS = 86_400_000;
+const YEAR_BARS = 252; // trading days
+// The staggered date window each backtest picks its start from.
+const WINDOW_START = Date.UTC(2020, 0, 1);
+const WINDOW_END = Date.UTC(2026, 0, 1);
+const MIN_LEN = Math.round(YEAR_BARS * 0.75); // ≥ 9 months
+const MAX_LEN = YEAR_BARS * 3;                // ≤ 3 years
 
 // 20-color palette tuned for the Finterion light canvas — brand chart series
 // first, then a denser distinguishable spread so 20 curves stay readable on
@@ -45,9 +51,12 @@ interface AlgoCurve {
   id: string;
   label: string;
   color: string;
+  /** Absolute UTC ms timestamp of the first bar. */
+  startTime: number;
+  /** Per-bar equity values (starts at 1.0). */
   values: Float32Array;
   finalEquity: number;
-  cagr: number; // annualised (assumes 252 daily bars / year)
+  cagr: number;
   maxDD: number;
 }
 
@@ -64,26 +73,26 @@ function makeRng(seed: number): () => number {
   };
 }
 
-function generateEquityCurves(nBars: number, nAlgos: number): {
-  bars: OHLC[];
-  curves: AlgoCurve[];
-} {
-  const start = Date.now() - nBars * 86400_000; // daily bars
-  const bars: OHLC[] = new Array(nBars);
-  for (let i = 0; i < nBars; i++) {
-    bars[i] = { time: start + i * 86400_000, open: 1, high: 1, low: 1, close: 1 };
-  }
+/** Generate `nAlgos` equity curves, each with a random start date within
+ *  `[WINDOW_START, WINDOW_END)` and a random length in trading days. This is
+ *  the realistic case: every backtest ran over a different date range. */
+function generateEquityCurves(nAlgos: number): AlgoCurve[] {
   const curves: AlgoCurve[] = [];
   for (let a = 0; a < nAlgos; a++) {
     const rng = makeRng(0x1234 + a * 977);
-    // Each algo has its own drift/vol profile — most are slightly positive.
-    const drift = (rng() - 0.40) * 0.0014;     // ~ −0.06% .. +0.08% daily
-    const vol = 0.006 + rng() * 0.020;          // 0.6%  .. 2.6% daily
-    const values = new Float32Array(nBars);
+    const len = Math.round(MIN_LEN + rng() * (MAX_LEN - MIN_LEN));
+    // Anchor the start so the whole run fits in the window.
+    const maxStartOffsetDays = Math.max(0, Math.floor((WINDOW_END - WINDOW_START) / DAY_MS) - len);
+    const startOffsetDays = Math.floor(rng() * (maxStartOffsetDays + 1));
+    const startTime = WINDOW_START + startOffsetDays * DAY_MS;
+
+    const drift = (rng() - 0.40) * 0.0014;    // ~ −0.06% .. +0.08% daily
+    const vol = 0.006 + rng() * 0.020;         // 0.6% .. 2.6% daily
+    const values = new Float32Array(len);
     let eq = 1.0;
     let peak = 1.0;
     let maxDD = 0;
-    for (let i = 0; i < nBars; i++) {
+    for (let i = 0; i < len; i++) {
       // Box-Muller-ish normal-ish noise (two uniforms summed → triangle, fine for a demo).
       const z = (rng() + rng() + rng() - 1.5) * 1.4142;
       const ret = drift + z * vol;
@@ -93,43 +102,59 @@ function generateEquityCurves(nBars: number, nAlgos: number): {
       if (dd < maxDD) maxDD = dd;
       values[i] = eq;
     }
-    const years = nBars / 252;
+    const years = len / YEAR_BARS;
     const cagr = Math.pow(eq, 1 / years) - 1;
     curves.push({
       id: `algo-${a}`,
       label: ALGO_NAMES[a] ?? `Algo ${a + 1}`,
       color: PALETTE[a % PALETTE.length]!,
+      startTime,
       values,
       finalEquity: eq,
       cagr,
       maxDD,
     });
   }
-  return { bars, curves };
+  return curves;
 }
 
+/** Build a shared calendar time axis spanning every curve's actual date
+ *  range, and NaN-pad each curve into its correct slice. Left-pads curves
+ *  that started late; right-pads curves that finished early. */
+function alignByDate(curves: AlgoCurve[]): { bars: OHLC[]; padded: Float32Array[] } {
+  if (curves.length === 0) return { bars: [], padded: [] };
+  let globalStart = Infinity;
+  let globalEnd = -Infinity;
+  for (const c of curves) {
+    if (c.startTime < globalStart) globalStart = c.startTime;
+    const end = c.startTime + (c.values.length - 1) * DAY_MS;
+    if (end > globalEnd) globalEnd = end;
+  }
+  const n = Math.round((globalEnd - globalStart) / DAY_MS) + 1;
+  const bars: OHLC[] = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const t = globalStart + i * DAY_MS;
+    bars[i] = { time: t, open: 1, high: 1, low: 1, close: 1 };
+  }
+  const padded: Float32Array[] = curves.map((c) => {
+    const out = new Float32Array(n);
+    out.fill(NaN);
+    const offset = Math.round((c.startTime - globalStart) / DAY_MS);
+    for (let i = 0; i < c.values.length; i++) out[offset + i] = c.values[i]!;
+    return out;
+  });
+  return { bars, padded };
+}
+
+/** Alignment axis used by the chart. */
+type AlignMode = 'date' | 'duration';
 type SortKey = 'cagr' | 'maxdd' | 'name';
 
 export function EquityCurvesDemo() {
-  const { bars, curves } = useMemo(() => generateEquityCurves(N_BARS, N_ALGOS), []);
+  const curves = useMemo(() => generateEquityCurves(N_ALGOS), []);
   const [sortBy, setSortBy] = useState<SortKey>('cagr');
+  const [alignMode, setAlignMode] = useState<AlignMode>('duration');
   const theme = useChartTheme();
-
-  // The chart's autoscale only looks at the main indicator series, so we
-  // compute a global y-range that envelopes every curve and pin it on the
-  // primary indicator. Includes a ±5% pad.
-  const yRange = useMemo<[number, number]>(() => {
-    let lo = Infinity, hi = -Infinity;
-    for (const c of curves) {
-      for (let i = 0; i < c.values.length; i++) {
-        const v = c.values[i]!;
-        if (v < lo) lo = v;
-        if (v > hi) hi = v;
-      }
-    }
-    const pad = (hi - lo) * 0.05;
-    return [lo - pad, hi + pad];
-  }, [curves]);
 
   const sortedCurves = useMemo(() => {
     const arr = [...curves];
@@ -139,17 +164,55 @@ export function EquityCurvesDemo() {
     return arr;
   }, [curves, sortBy]);
 
+  // Build the two things the Chart needs — `bars` and per-curve `values` —
+  // in the currently-selected alignment mode.
+  const { bars, alignedValues } = useMemo(() => {
+    if (alignMode === 'duration') {
+      const aligned = alignByDuration(
+        sortedCurves.map((c) => ({
+          values: c.values,
+          // The elapsed-ms axis is derived from the length + shared bar
+          // interval; timestamps are only used to *infer* spacing.
+        })),
+        { barIntervalMs: DAY_MS },
+      );
+      const b: OHLC[] = new Array(aligned.time.length);
+      for (let i = 0; i < aligned.time.length; i++) {
+        b[i] = { time: aligned.time[i]!, open: 1, high: 1, low: 1, close: 1 };
+      }
+      return { bars: b, alignedValues: aligned.values };
+    }
+    const { bars: b, padded } = alignByDate(sortedCurves);
+    return { bars: b, alignedValues: padded };
+  }, [sortedCurves, alignMode]);
+
+  // Global y-range envelope so autoscale doesn't clip overlays.
+  const yRange = useMemo<[number, number]>(() => {
+    let lo = Infinity, hi = -Infinity;
+    for (const arr of alignedValues) {
+      for (let i = 0; i < arr.length; i++) {
+        const v = arr[i]!;
+        if (!Number.isFinite(v)) continue;
+        if (v < lo) lo = v;
+        if (v > hi) hi = v;
+      }
+    }
+    if (!Number.isFinite(lo)) return [0, 2];
+    const pad = (hi - lo) * 0.05;
+    return [lo - pad, hi + pad];
+  }, [alignedValues]);
+
   const panels = useMemo<PanelSpec[]>(() => {
     if (!sortedCurves.length) return [];
-    const [first, ...rest] = sortedCurves;
-    const toSeries = (c: AlgoCurve): IndicatorSeries => ({
+    const toSeries = (c: AlgoCurve, i: number): IndicatorSeries => ({
       id: c.id,
       label: c.label,
       metric: `${c.cagr >= 0 ? '+' : ''}${(c.cagr * 100).toFixed(1)}%`,
-      values: c.values,
+      values: alignedValues[i]!,
       kind: 'line',
       color: c.color,
     });
+    const [first, ...rest] = sortedCurves.map((c, i) => toSeries(c, i));
     return [
       {
         id: 'equity',
@@ -157,19 +220,26 @@ export function EquityCurvesDemo() {
         weight: 1,
         title: `${curves.length} Algorithms`,
         indicator: {
-          ...toSeries(first!),
+          ...first!,
           yRange,
           refLines: [1.0],
         },
-        overlays: rest.map(toSeries),
+        overlays: rest,
       },
     ];
-  }, [sortedCurves, yRange, curves.length]);
+  }, [sortedCurves, alignedValues, yRange, curves.length]);
 
   const best = sortedCurves[0];
   const worst = sortedCurves[sortedCurves.length - 1];
   const medianCagr = median(sortedCurves.map((c) => c.cagr));
   const medianDD = median(sortedCurves.map((c) => c.maxDD));
+
+  const minLenDays = sortedCurves.length
+    ? Math.min(...sortedCurves.map((c) => c.values.length))
+    : 0;
+  const maxLenDays = sortedCurves.length
+    ? Math.max(...sortedCurves.map((c) => c.values.length))
+    : 0;
 
   return (
     <div
@@ -182,21 +252,39 @@ export function EquityCurvesDemo() {
     >
       <TopBar
         title="Equity Curves"
-        subtitle={`${curves.length} algorithms · ${bars.length} daily bars · ~${(N_BARS / 252).toFixed(1)} years`}
+        subtitle={
+          alignMode === 'duration'
+            ? `${curves.length} algorithms · aligned by elapsed duration · runs ${minLenDays}–${maxLenDays} days`
+            : `${curves.length} algorithms · aligned by calendar date · staggered starts 2020–2025`
+        }
         tag="DEMO"
         right={
-          <div style={{ display: 'flex', gap: spacing.sm, alignItems: 'center' }}>
-            <Overline style={{ color: colors.inkMuted, marginRight: 4 }}>Sort</Overline>
-            <ToggleGroup<SortKey>
-              size="sm"
-              value={sortBy}
-              onChange={setSortBy}
-              options={[
-                { label: 'CAGR', value: 'cagr' },
-                { label: 'Max DD', value: 'maxdd' },
-                { label: 'Name', value: 'name' },
-              ]}
-            />
+          <div style={{ display: 'flex', gap: spacing.md, alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: spacing.sm, alignItems: 'center' }}>
+              <Overline style={{ color: colors.inkMuted, marginRight: 4 }}>Axis</Overline>
+              <ToggleGroup<AlignMode>
+                size="sm"
+                value={alignMode}
+                onChange={setAlignMode}
+                options={[
+                  { label: 'Duration', value: 'duration' },
+                  { label: 'Date', value: 'date' },
+                ]}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: spacing.sm, alignItems: 'center' }}>
+              <Overline style={{ color: colors.inkMuted, marginRight: 4 }}>Sort</Overline>
+              <ToggleGroup<SortKey>
+                size="sm"
+                value={sortBy}
+                onChange={setSortBy}
+                options={[
+                  { label: 'CAGR', value: 'cagr' },
+                  { label: 'Max DD', value: 'maxdd' },
+                  { label: 'Name', value: 'name' },
+                ]}
+              />
+            </div>
           </div>
         }
       />
@@ -246,10 +334,15 @@ export function EquityCurvesDemo() {
           <div style={{ padding: `${spacing.md}px ${spacing.lg}px` }}>
             <CardHeader
               title={`${curves.length} Algorithms · Equity Curves`}
-              subtitle="Legend is rendered to the right — click the eye to isolate or hide a curve."
+              subtitle={
+                alignMode === 'duration'
+                  ? 'Every curve starts at t=0. The x-axis shows elapsed time since each backtest began — perfect for comparing strategies that ran over different date ranges.'
+                  : 'Every curve keeps its real calendar dates. Staggered starts and different run lengths are visible as gaps on the left and right of each line.'
+              }
             />
             <div style={{ width: '100%', height: 420 }}>
               <Chart
+                key={alignMode}
                 data={bars}
                 panels={panels}
                 theme={theme}
@@ -260,6 +353,7 @@ export function EquityCurvesDemo() {
                 legendPosition="right"
                 legendWidth={220}
                 initialFit="all"
+                timeFormat={alignMode === 'duration' ? 'duration' : undefined}
               />
             </div>
           </div>
@@ -268,7 +362,7 @@ export function EquityCurvesDemo() {
         {/* Code-snippet card — show how to define this chart in the three
             supported surfaces (React, Python, plain HTML embed). */}
         <div style={{ marginTop: spacing.lg }}>
-          <CodeSnippets />
+          <CodeSnippets alignMode={alignMode} />
         </div>
       </div>
     </div>
@@ -289,40 +383,168 @@ function median(values: number[]): number {
 
 type Lang = 'react' | 'python' | 'html';
 
-const SNIPPETS: Record<Lang, { label: string; subtitle: string; code: string }> = {
+const SNIPPETS_DURATION: Record<Lang, { label: string; subtitle: string; code: string }> = {
   react: {
     label: 'React',
     subtitle: 'TypeScript · @finterion/charts-react',
     code: `import { Chart } from '@finterion/charts-react';
-import type { PanelSpec } from '@finterion/charts-core';
+import { alignByDuration, type OHLC, type PanelSpec } from '@finterion/charts-core';
 
-// Each algo: { id, label, color, values: Float32Array, cagr, maxDD }
-const [first, ...rest] = sortedCurves;
+// Each backtest ran over its own date range — different starts and lengths.
+// alignByDuration builds a shared synthetic time axis (ms since t=0) and
+// right-pads shorter curves with NaN, so every curve starts at bar 0.
+const aligned = alignByDuration(
+  curves.map((c) => ({ values: c.values, times: c.timestamps })),
+  { barIntervalMs: 86_400_000 }, // 1 day
+);
 
-const panels: PanelSpec[] = [
-  {
-    id: 'equity',
-    kind: 'indicator',
-    weight: 1,
-    title: \`\${curves.length} Algorithms\`,
-    indicator: {
-      id: first.id,
-      label: first.label,
-      values: first.values,
-      kind: 'line',
-      color: first.color,
-      yRange,           // [lo, hi] enveloping every curve
-      refLines: [1.0],  // breakeven
-    },
-    overlays: rest.map((c) => ({
-      id: c.id,
-      label: c.label,
-      values: c.values,
-      kind: 'line',
-      color: c.color,
-    })),
+const bars: OHLC[] = Array.from(aligned.time, (t) => ({
+  time: t, open: 1, high: 1, low: 1, close: 1,
+}));
+
+const [first, ...rest] = curves;
+const panels: PanelSpec[] = [{
+  id: 'equity',
+  kind: 'indicator',
+  weight: 1,
+  title: \`\${curves.length} Algorithms\`,
+  indicator: {
+    id: first.id, label: first.label,
+    values: aligned.values[0]!,
+    kind: 'line', color: first.color,
+    refLines: [1.0], yRange,
   },
-];
+  overlays: rest.map((c, i) => ({
+    id: c.id, label: c.label,
+    values: aligned.values[i + 1]!,
+    kind: 'line', color: c.color,
+  })),
+}];
+
+<Chart
+  data={bars}
+  panels={panels}
+  theme="finterion-light"
+  timeFormat="duration"   // axis + tooltip show "6M", "1Y 3M", ...
+  showLegend="auto"
+  legendPosition="right"
+  initialFit="all"
+/>;`,
+  },
+  python: {
+    label: 'Python',
+    subtitle: 'Jupyter / Streamlit · finterion-charts',
+    code: `from finterion_charts import (
+    ChartSpec, Display, Indicator, align_by_duration,
+)
+
+# curves: list of dicts {id, label, color, values, times}
+aligned = align_by_duration(curves, bar_interval_ms=86_400_000)
+n = len(aligned.time)
+
+first, *rest = curves
+spec = (
+    ChartSpec(display=Display(theme="finterion-light", time_format="duration"))
+    .with_bars(
+        time=aligned.time,
+        open=[1.0]*n, high=[1.0]*n, low=[1.0]*n, close=[1.0]*n,
+    )
+    .add_panel(Indicator.panel(
+        id="equity", weight=1, title=f"{len(curves)} Algorithms",
+        values=aligned.values[0], color=first["color"], label=first["label"],
+        ref_lines=[1.0],
+        overlays=[
+            Indicator(
+                id=c["id"], label=c["label"],
+                values=aligned.values[i + 1],
+                kind="line", color=c["color"],
+            )
+            for i, c in enumerate(rest)
+        ],
+    ))
+)
+
+spec.show()`,
+  },
+  html: {
+    label: 'Plain HTML',
+    subtitle: 'iframe embed · no build step',
+    code: `<!--
+  Duration-aligned overlay: build the synthetic time axis on the server
+  (JS/Python), then post the ChartSpec into the sandboxed embed iframe.
+-->
+<iframe
+  src="https://charts.finterion.com/embed/"
+  width="100%" height="460"
+  style="border:1px solid #d0d7de;border-radius:6px"
+  loading="lazy"
+  id="equity-frame"
+></iframe>
+
+<script>
+  const spec = {
+    version: 1,
+    data: { bars: { time: [/* 0, 86400000, 172800000, ... ms elapsed */] } },
+    display: {
+      theme: "finterion-light",
+      legendPosition: "right",
+      timeFormat: "duration",     // "6M", "1Y 3M", ...
+    },
+    panels: [{
+      id: "equity", kind: "indicator", weight: 1, title: "20 Algorithms",
+      indicator: {
+        id: "algo-0", label: "MeanRev-Z",
+        values: [/* right-padded with null */], kind: "line", color: "#0969da",
+        refLines: [1.0], yRange: [0.7, 1.6],
+      },
+      overlays: [ /* 19 more curves, each right-padded with null */ ],
+    }],
+  };
+  document.getElementById('equity-frame').onload = (e) =>
+    e.target.contentWindow.postMessage({ type: 'spec', spec }, '*');
+</script>`,
+  },
+};
+
+const SNIPPETS_DATE: Record<Lang, { label: string; subtitle: string; code: string }> = {
+  react: {
+    label: 'React',
+    subtitle: 'TypeScript · @finterion/charts-react',
+    code: `import { Chart } from '@finterion/charts-react';
+import type { OHLC, PanelSpec } from '@finterion/charts-core';
+
+// Build a shared calendar time axis spanning every curve's date range,
+// then NaN-pad each curve into its correct slice.
+const globalStart = Math.min(...curves.map((c) => c.startTime));
+const globalEnd   = Math.max(...curves.map((c) => c.startTime + (c.values.length - 1) * 86_400_000));
+const n = Math.round((globalEnd - globalStart) / 86_400_000) + 1;
+
+const bars: OHLC[] = Array.from({ length: n }, (_, i) => ({
+  time: globalStart + i * 86_400_000, open: 1, high: 1, low: 1, close: 1,
+}));
+const padded = curves.map((c) => {
+  const out = new Float32Array(n).fill(NaN);
+  const offset = Math.round((c.startTime - globalStart) / 86_400_000);
+  out.set(c.values, offset);
+  return out;
+});
+
+const [first, ...rest] = curves;
+const panels: PanelSpec[] = [{
+  id: 'equity', kind: 'indicator', weight: 1,
+  title: \`\${curves.length} Algorithms\`,
+  indicator: {
+    id: first.id, label: first.label,
+    values: padded[0]!,
+    kind: 'line', color: first.color,
+    refLines: [1.0], yRange,
+  },
+  overlays: rest.map((c, i) => ({
+    id: c.id, label: c.label,
+    values: padded[i + 1]!,
+    kind: 'line', color: c.color,
+  })),
+}];
 
 <Chart
   data={bars}
@@ -330,52 +552,53 @@ const panels: PanelSpec[] = [
   theme="finterion-light"
   showLegend="auto"
   legendPosition="right"
-  legendWidth={220}
   initialFit="all"
 />;`,
   },
   python: {
     label: 'Python',
     subtitle: 'Jupyter / Streamlit · finterion-charts',
-    code: `from finterion_charts import ChartSpec, Indicator
-import numpy as np
+    code: `import numpy as np
+from finterion_charts import ChartSpec, Display, Indicator
 
-# curves: list of dicts {id, label, color, values: np.ndarray, cagr}
+DAY_MS = 86_400_000
+
+# curves: list of dicts {id, label, color, values, start_time_ms}
+global_start = min(c["start_time_ms"] for c in curves)
+global_end   = max(c["start_time_ms"] + (len(c["values"]) - 1) * DAY_MS for c in curves)
+n = int(round((global_end - global_start) / DAY_MS)) + 1
+time = [global_start + i * DAY_MS for i in range(n)]
+
+def pad(c):
+    out = [None] * n
+    offset = int(round((c["start_time_ms"] - global_start) / DAY_MS))
+    for i, v in enumerate(c["values"]):
+        out[offset + i] = float(v)
+    return out
+
 first, *rest = curves
-
 spec = (
-    ChartSpec(theme="finterion-light", legend_position="right")
-    .with_bars(time=time)               # daily timestamps, no OHLC needed
+    ChartSpec(display=Display(theme="finterion-light"))
+    .with_bars(time=time, open=[1.0]*n, high=[1.0]*n, low=[1.0]*n, close=[1.0]*n)
     .add_panel(Indicator.panel(
-        id="equity",
-        weight=1,
-        title=f"{len(curves)} Algorithms",
-        values=first["values"],
-        label=first["label"],
-        color=first["color"],
-        ref_lines=[1.0],                # breakeven
-        y_range=(y_lo, y_hi),
+        id="equity", weight=1, title=f"{len(curves)} Algorithms",
+        values=pad(first), color=first["color"], label=first["label"],
+        ref_lines=[1.0],
         overlays=[
-            Indicator(
-                id=c["id"], label=c["label"],
-                values=c["values"], color=c["color"], kind="line",
-            )
+            Indicator(id=c["id"], label=c["label"], values=pad(c),
+                      kind="line", color=c["color"])
             for c in rest
         ],
     ))
 )
-
-spec.show()                             # IPython display
-# spec.to_json("equity.json")           # share / persist
-# spec.embed_url()                      # https://charts.finterion.com/embed/#spec=…`,
+spec.show()`,
   },
   html: {
     label: 'Plain HTML',
     subtitle: 'iframe embed · no build step',
     code: `<!--
-  Drop this into any HTML page. The chart renders in a sandboxed iframe
-  hosted on charts.finterion.com — no bundler, npm, or pip required.
-  Replace the inline JSON with your own ChartSpec.
+  Date-aligned overlay: real calendar timestamps, curves padded with null
+  where they weren't running. Post the spec into the sandboxed embed iframe.
 -->
 <iframe
   src="https://charts.finterion.com/embed/"
@@ -391,20 +614,14 @@ spec.show()                             # IPython display
     data: { bars: { time: [/* unix ms timestamps */] } },
     display: { theme: "finterion-light", legendPosition: "right" },
     panels: [{
-      id: "equity",
-      kind: "indicator",
-      weight: 1,
-      title: "20 Algorithms",
+      id: "equity", kind: "indicator", weight: 1, title: "20 Algorithms",
       indicator: {
         id: "algo-0", label: "MeanRev-Z",
-        values: [/* Float32Array */], kind: "line", color: "#0969da",
+        values: [/* null on left/right where the backtest wasn't running */],
+        kind: "line", color: "#0969da",
         refLines: [1.0], yRange: [0.7, 1.6],
       },
-      overlays: [
-        { id: "algo-1", label: "Momentum-12-1",
-          values: [/* … */], kind: "line", color: "#8250df" },
-        // …18 more overlays
-      ],
+      overlays: [ /* 19 more curves, each null-padded to the shared axis */ ],
     }],
   };
   document.getElementById('equity-frame').onload = (e) =>
@@ -413,10 +630,11 @@ spec.show()                             # IPython display
   },
 };
 
-function CodeSnippets() {
+function CodeSnippets({ alignMode }: { alignMode: AlignMode }) {
   const [lang, setLang] = useState<Lang>('react');
   const [copied, setCopied] = useState(false);
-  const snippet = SNIPPETS[lang];
+  const snippets = alignMode === 'duration' ? SNIPPETS_DURATION : SNIPPETS_DATE;
+  const snippet = snippets[lang];
 
   const handleCopy = async () => {
     try {
@@ -433,7 +651,11 @@ function CodeSnippets() {
       <div style={{ padding: `${spacing.md}px ${spacing.lg}px` }}>
         <CardHeader
           title="Define this chart"
-          subtitle="Same ChartSpec, three surfaces. Pick the one that matches your stack."
+          subtitle={
+            alignMode === 'duration'
+              ? 'Uses alignByDuration + timeFormat="duration" to overlay curves that ran over different date ranges.'
+              : 'Overlays curves on their real calendar timestamps, null-padded where each backtest wasn\u2019t running.'
+          }
           right={
             <button
               type="button"

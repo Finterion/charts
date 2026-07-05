@@ -209,6 +209,11 @@ export function Chart(props: ChartProps) {
 
   useEffect(() => {
     if (!chartRef.current) return;
+    chartRef.current.setTimeFormat(props.timeFormat);
+  }, [props.timeFormat]);
+
+  useEffect(() => {
+    if (!chartRef.current) return;
     chartRef.current.setDisplayOptions({
       panelGap: props.panelGap,
       titleColor: props.titleColor,

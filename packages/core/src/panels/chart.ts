@@ -510,6 +510,16 @@ export class Chart {
     return this.viewport;
   }
 
+  /**
+   * Swap the time-axis label formatter at runtime. Pass a format string
+   * (`'MMM YYYY'`, `'duration'`, ...), a callback, or `undefined` to revert
+   * to the built-in adaptive formatter.
+   */
+  setTimeFormat(fmt: ChartOptions['timeFormat']) {
+    this.timeFormatter = fmt === undefined ? undefined : resolveTimeFormatter(fmt);
+    this.markDirty('base', 'overlay');
+  }
+
   destroy() {
     this.detachPanZoom?.();
     this.resizeObserver?.disconnect();
@@ -770,10 +780,16 @@ export class Chart {
   private buildTooltip(): string[] {
     if (!this.buf || this.hoverIdx < 0) return [];
     const i = this.hoverIdx;
-    const t = new Date(this.buf.time[i]!);
+    const rawTime = this.buf.time[i]!;
+    // Honor the user's `timeFormat` when present so `timeFormat: 'duration'`
+    // and other overrides drive the tooltip's first line too (otherwise a
+    // duration-axis chart would show a nonsensical epoch-based ISO date).
+    const timeLabel = this.timeFormatter
+      ? this.timeFormatter(rawTime)
+      : new Date(rawTime).toISOString().replace('T', ' ').slice(0, 16);
     const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
     const lines = [
-      t.toISOString().replace('T', ' ').slice(0, 16),
+      timeLabel,
       `O ${fmt(this.buf.open[i]!)}   H ${fmt(this.buf.high[i]!)}`,
       `L ${fmt(this.buf.low[i]!)}   C ${fmt(this.buf.close[i]!)}`,
     ];

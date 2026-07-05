@@ -98,6 +98,14 @@ export const CHART_SPEC_SCHEMA = {
           ],
         },
         initialZoom: { type: 'number', exclusiveMinimum: 0, maximum: 100 },
+        timeFormat: {
+          type: 'string',
+          minLength: 1,
+          description:
+            "Time-axis label format. Use 'duration' to render elapsed durations " +
+            "(e.g. '6M', '1Y 3M') alongside alignByDuration; otherwise a token " +
+            'template like "YYYY-MM", "MMM YYYY", "DD/MM/YYYY".',
+        },
         branding: {
           oneOf: [
             { type: 'boolean' },

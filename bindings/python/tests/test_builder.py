@@ -13,6 +13,7 @@ import pytest
 
 from finterion_charts import (
     ChartSpec,
+    Display,
     HBar,
     Heatmap,
     Histogram,
@@ -20,6 +21,7 @@ from finterion_charts import (
     Marker,
     Price,
     Scatter,
+    align_by_duration,
     get_chart_capabilities,
     validate_schema,
 )
@@ -199,3 +201,116 @@ def test_get_chart_capabilities_matches_ts_keys():
     assert "candles" in caps["seriesTypes"]
     assert "pct1" in caps["formatDirectives"]
     assert "finterion-dark" in caps["themes"]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Display.time_format + align_by_duration
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_display_time_format_emits_camelcase_field():
+    d = Display(time_format="duration").to_dict()
+    assert d == {"timeFormat": "duration"}
+
+    d = Display(theme="finterion-light", time_format="MMM YYYY").to_dict()
+    assert d["timeFormat"] == "MMM YYYY"
+
+
+def test_display_time_format_rejects_empty_string():
+    with pytest.raises(ValueError):
+        Display(time_format="").to_dict()
+
+
+def test_display_time_format_is_valid_in_spec():
+    spec = (
+        ChartSpec(theme="finterion-light", time_format="duration")
+        .add_panel(Histogram(id="h", weight=1, values=[1.0, 2.0, 3.0]))
+    )
+    # Strict schema validation must accept the new field.
+    d = spec.to_dict()
+    res = validate_schema(d)
+    assert res.ok, res.errors
+    assert d["display"]["timeFormat"] == "duration"
+
+
+def test_align_by_duration_empty_input():
+    out = align_by_duration([])
+    assert out.time == []
+    assert out.values == []
+    assert out.bar_interval_ms == 86_400_000.0
+
+
+def test_align_by_duration_longest_curve_sets_axis_length():
+    out = align_by_duration(
+        [
+            {"values": [1.0, 2.0, 3.0]},
+            {"values": [1.0, 2.0, 3.0, 4.0, 5.0]},
+            {"values": [1.0, 2.0]},
+        ],
+        bar_interval_ms=1000,
+    )
+    assert len(out.time) == 5
+    assert out.time == [0.0, 1000.0, 2000.0, 3000.0, 4000.0]
+    assert out.bar_interval_ms == 1000.0
+
+
+def test_align_by_duration_right_pads_with_none():
+    out = align_by_duration(
+        [{"values": [1.0, 2.0, 3.0, 4.0]}, {"values": [10.0, 20.0]}],
+        bar_interval_ms=1000,
+    )
+    assert out.values[0] == [1.0, 2.0, 3.0, 4.0]
+    a, b, c, d = out.values[1]
+    assert a == 10.0
+    assert b == 20.0
+    assert c is None
+    assert d is None
+
+
+def test_align_by_duration_infers_spacing_from_longest():
+    out = align_by_duration(
+        [
+            {"values": [1.0, 2.0, 3.0], "times": [0, 500, 1000]},
+            {
+                "values": [1.0, 2.0, 3.0, 4.0, 5.0],
+                "times": [0, 1000, 2000, 3000, 4000],
+            },
+        ]
+    )
+    assert out.bar_interval_ms == 1000.0
+    assert out.time == [0.0, 1000.0, 2000.0, 3000.0, 4000.0]
+
+
+def test_align_by_duration_defaults_to_one_day_when_no_times():
+    out = align_by_duration([{"values": [1.0, 2.0, 3.0]}])
+    assert out.bar_interval_ms == 86_400_000.0
+    assert out.time[1] == 86_400_000.0
+
+
+def test_align_by_duration_preserves_input_order():
+    out = align_by_duration(
+        [
+            {"values": [1.0]},
+            {"values": [1.0, 2.0, 3.0]},
+            {"values": [1.0, 2.0]},
+        ],
+        bar_interval_ms=1,
+    )
+    assert len(out.values) == 3
+    assert out.values[0][0] == 1.0
+    assert out.values[1][2] == 3.0
+    assert out.values[2][1] == 2.0
+
+
+def test_align_by_duration_rejects_non_dict_input():
+    with pytest.raises(TypeError):
+        align_by_duration([[1, 2, 3]])  # type: ignore[list-item]
+
+
+def test_align_by_duration_nan_becomes_none():
+    out = align_by_duration(
+        [{"values": [1.0, float("nan"), 3.0]}], bar_interval_ms=1
+    )
+    assert out.values[0][0] == 1.0
+    assert out.values[0][1] is None
+    assert out.values[0][2] == 3.0

@@ -32,6 +32,10 @@ const TRAIN_COLOR    = '#0969da';             // blue
 const TRAIN_GLOW     = 'rgba(9,105,218,0.35)';
 const TRAIN_BG       = 'rgba(9,105,218,0.12)'; // solid pixel-space background
 
+const GAP_BG         = 'rgba(148,163,184,0.18)'; // neutral slate — the gap window
+const GAP_COLOR      = '#94a3b8';             // slate line through the gap
+const GAP_GLOW       = 'rgba(148,163,184,0.3)';
+
 const TEST_COLOR     = '#d97706';             // amber
 const TEST_GLOW      = 'rgba(217,119,6,0.35)';
 const TEST_BG        = 'rgba(217,119,6,0.12)';
@@ -94,6 +98,25 @@ export function TrainTestDemo() {
     return { id: 'train-bg', kind: 'background', values: mask, color: TRAIN_BG };
   }, [data]);
 
+  /** 1/NaN mask for the gap window between train-end and test-start. */
+  const gapBg = useMemo<IndicatorSeries>(() => {
+    const mask = new Float32Array(data.length);
+    for (let i = 0; i < data.length; i++) {
+      mask[i] = data[i]!.time > TRAIN_END && data[i]!.time < TEST_START ? 1 : NaN;
+    }
+    return { id: 'gap-bg', kind: 'background', values: mask, color: GAP_BG };
+  }, [data]);
+
+  const gapSeries = useMemo<IndicatorSeries>(() => ({
+    id: 'gap',
+    label: 'Gap  (2023-01-01 → 2023-01-31)',
+    kind: 'line',
+    // Include TRAIN_END and TEST_START so the line connects to train/test with no break.
+    values: maskClose(data, TRAIN_END, TEST_START),
+    color: GAP_COLOR,
+    glow: GAP_GLOW,
+  }), [data]);
+
   /** 1/NaN mask for the test window. */
   const testBg = useMemo<IndicatorSeries>(() => {
     const mask = new Float32Array(data.length);
@@ -142,7 +165,7 @@ export function TrainTestDemo() {
         title: 'BTC/USD — Train / Test split',
         // trainSeries drives y-scaling; background overlays render first (behind lines).
         indicator: trainSeries,
-        overlays: [trainBg, testBg, testSeries],
+        overlays: [trainBg, gapBg, testBg, gapSeries, testSeries],
       },
       {
         id: 'volume',

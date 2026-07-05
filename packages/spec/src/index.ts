@@ -95,6 +95,17 @@ export interface ChartSpec {
      */
     initialZoom?: number;
     /**
+     * Time-axis label format. Accepts:
+     *   - `'duration'` — format axis (and tooltip) values as elapsed
+     *     durations (`"6M"`, `"1Y 3M"`). Use with `alignByDuration` when
+     *     overlaying curves that don't share the same wall-clock dates.
+     *   - A token format string (`'YYYY-MM'`, `'MMM YYYY'`,
+     *     `'DD/MM/YYYY'`, ...). Supported tokens: `YYYY`, `YY`, `MMM`,
+     *     `MM`, `DD`, `HH`, `mm`.
+     * When omitted the built-in adaptive formatter is used.
+     */
+    timeFormat?: string;
+    /**
      * "Powered by Finterion" attribution badge. Default: shown.
      * Set to `false` to hide the badge — subject to the LICENSE
      * trademark policy. Pass an object to customize the badge contents.
@@ -321,6 +332,7 @@ export function compileSpec(spec: ChartSpec): CompiledChart {
     ...(spec.display?.showTimeAxis !== undefined ? { showTimeAxis: spec.display.showTimeAxis } : {}),
     ...(spec.display?.showLegend !== undefined ? { showLegend: spec.display.showLegend } : {}),
     ...(spec.display?.initialZoom !== undefined ? { initialZoom: spec.display.initialZoom } : {}),
+    ...(spec.display?.timeFormat !== undefined ? { timeFormat: spec.display.timeFormat } : {}),
     ...(spec.display?.branding !== undefined ? { branding: spec.display.branding } : {}),
   };
 

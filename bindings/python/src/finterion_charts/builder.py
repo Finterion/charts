@@ -217,6 +217,144 @@ def _drop_none(d: dict[str, Any]) -> dict[str, Any]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# align_by_duration — overlay curves with different date ranges
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@dataclass
+class AlignedCurves:
+    """Return type of :func:`align_by_duration`.
+
+    Attributes:
+        time: Synthetic time axis (elapsed ms since t=0), one entry per bar
+            on the longest input curve. Use this as ``time`` on your
+            ``Price``/``bars`` block.
+        values: Per-curve ``list[float]`` — same order as the input curves,
+            each right-padded with ``None`` (rendered as a gap) to
+            ``len(time)``.
+        bar_interval_ms: Resolved sample spacing in ms (user-supplied or
+            inferred from the longest curve's timestamps).
+    """
+
+    time: list[float]
+    values: list[list[float | None]]
+    bar_interval_ms: float
+
+
+def align_by_duration(
+    curves: Sequence[dict],
+    *,
+    bar_interval_ms: float | None = None,
+) -> AlignedCurves:
+    """Overlay curves that don't share the same wall-clock date range by
+    aligning them along elapsed *duration* from each curve's start.
+
+    Every curve is placed at index 0 on a shared synthetic time axis (in ms
+    since t=0). Shorter curves are right-padded with ``None`` so the
+    renderer draws them ending early instead of stretching. Combine with
+    ``Display(time_format="duration")`` on the ``ChartSpec`` for
+    duration-formatted axis labels (``"6M"``, ``"1Y 3M"``, ...).
+
+    Each entry in ``curves`` is a dict with:
+
+    - ``"values"``: the numeric series (list, numpy array, pandas Series).
+    - ``"times"`` (optional): per-sample timestamps in ms since epoch. Only
+      used to infer ``bar_interval_ms`` when it is not supplied — sample
+      spacing is expected to be uniform. Pandas ``DatetimeIndex`` /
+      datetime64 ``Series`` are auto-converted to ms.
+
+    All curves are assumed to share the same sample spacing (typically
+    daily). Mixed frequencies must be resampled by the caller.
+
+    Example::
+
+        from finterion_charts import ChartSpec, Display, Indicator, align_by_duration
+
+        aligned = align_by_duration([
+            {"values": algo_a["equity"], "times": algo_a["timestamps"]},  # 504 daily bars
+            {"values": algo_b["equity"], "times": algo_b["timestamps"]},  # 320 daily bars
+        ])
+
+        n = len(aligned.time)
+        spec = (
+            ChartSpec(display=Display(theme="finterion-light", time_format="duration"))
+            .with_bars(time=aligned.time, open=[1.0]*n, high=[1.0]*n, low=[1.0]*n, close=[1.0]*n)
+            .add_panel(Indicator.panel(
+                id="equity", weight=1,
+                values=aligned.values[0], color=algo_a["color"], label=algo_a["label"],
+                ref_lines=[1.0],
+                overlays=[Indicator(
+                    values=aligned.values[1], kind="line",
+                    color=algo_b["color"], label=algo_b["label"],
+                )],
+            ))
+        )
+    """
+    if not curves:
+        return AlignedCurves(time=[], values=[], bar_interval_ms=bar_interval_ms or 86_400_000.0)
+
+    # Coerce every curve's values into a plain list of float|None with NaN → None.
+    coerced_values: list[list[float | None]] = []
+    coerced_times: list[list[float] | None] = []
+    longest_len = 0
+    longest_idx = -1
+    for i, c in enumerate(curves):
+        if not isinstance(c, dict) or "values" not in c:
+            raise TypeError(
+                f"curves[{i}] must be a dict with a 'values' key (got {type(c).__name__})"
+            )
+        v = _to_jsonable_floats(c["values"], allow_null=True)
+        coerced_values.append(v)
+        t = c.get("times")
+        coerced_times.append(_to_time_array(t) if t is not None else None)
+        if len(v) > longest_len:
+            longest_len = len(v)
+            longest_idx = i
+
+    # Resolve bar spacing.
+    resolved = bar_interval_ms
+    if resolved is None or not isfinite(float(resolved)) or float(resolved) <= 0:
+        resolved = _infer_bar_spacing_ms(coerced_times, longest_idx)
+    if resolved is None:
+        resolved = 86_400_000.0
+    resolved = float(resolved)
+
+    # Synthetic axis 0, bar, 2*bar, ...
+    time = [i * resolved for i in range(longest_len)]
+
+    # Right-pad each curve to `longest_len`.
+    padded: list[list[float | None]] = []
+    for v in coerced_values:
+        if len(v) < longest_len:
+            v = list(v) + [None] * (longest_len - len(v))
+        padded.append(v)
+
+    return AlignedCurves(time=time, values=padded, bar_interval_ms=resolved)
+
+
+def _infer_bar_spacing_ms(times_list: list[list[float] | None], preferred_idx: int) -> float | None:
+    """Median inter-sample gap of the first curve (starting with
+    ``preferred_idx``) that has at least 2 timestamps. Returns ``None`` if
+    none is usable."""
+    order: list[int] = []
+    if 0 <= preferred_idx < len(times_list):
+        order.append(preferred_idx)
+    for i in range(len(times_list)):
+        if i != preferred_idx:
+            order.append(i)
+    for i in order:
+        t = times_list[i]
+        if not t or len(t) < 2:
+            continue
+        gaps = sorted(t[j] - t[j - 1] for j in range(1, len(t)))
+        mid = len(gaps) // 2
+        med = gaps[mid] if len(gaps) % 2 else (gaps[mid - 1] + gaps[mid]) / 2
+        if isfinite(med) and med > 0:
+            return float(med)
+    return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Indicator series (used both as standalone indicator and as overlay)
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -612,6 +750,18 @@ class Display:
     #: ``100`` = fully zoomed out (all bars). Smaller values zoom IN
     #: (e.g. ``25`` shows the most recent quarter). Range: ``(0, 100]``.
     initial_zoom: float | None = None
+    #: Time-axis label format.
+    #:
+    #: - ``"duration"`` — render tick labels as elapsed durations
+    #:   (``"6M"``, ``"1Y 3M"``, ``"12d"``). Use together with
+    #:   :func:`align_by_duration` when overlaying curves that don't share
+    #:   the same wall-clock dates.
+    #: - a token template such as ``"YYYY-MM"``, ``"MMM YYYY"``,
+    #:   ``"DD/MM/YYYY"``. Supported tokens: ``YYYY``, ``YY``, ``MMM``,
+    #:   ``MM``, ``DD``, ``HH``, ``mm``.
+    #:
+    #: When ``None`` the built-in adaptive formatter is used.
+    time_format: str | None = None
     #: "Powered by Finterion" attribution badge.
     #: - ``None`` (default): show the standard badge.
     #: - ``False``: hide the badge (see Branding docstring re: trademark policy).
@@ -648,6 +798,11 @@ class Display:
                     "100 = fully zoomed out (all bars visible)."
                 )
             d["initialZoom"] = iz
+        if self.time_format is not None:
+            tf = str(self.time_format)
+            if not tf:
+                raise ValueError("time_format must be a non-empty string.")
+            d["timeFormat"] = tf
         if self.branding is not None:
             if isinstance(self.branding, bool):
                 d["branding"] = self.branding
@@ -748,6 +903,7 @@ class ChartSpec:
         show_legend: bool | Literal["auto"] | None = None,
         initial_zoom: float | None = None,
         branding: bool | Branding | None = None,
+        time_format: str | None = None,
     ) -> None:
         self.display = Display(
             theme=theme,
@@ -762,6 +918,7 @@ class ChartSpec:
             show_legend=show_legend,
             initial_zoom=initial_zoom,
             branding=branding,
+            time_format=time_format,
         )
         self.bars = None
         self.columns = {}
