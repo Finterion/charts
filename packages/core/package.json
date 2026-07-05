@@ -1,6 +1,6 @@
 {
   "name": "@finterion/charts-core",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Framework-agnostic charting engine — Canvas 2D, typed-array buffers, layered renderers.",
   "keywords": [
     "chart",
