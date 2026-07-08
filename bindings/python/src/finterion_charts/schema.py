@@ -110,9 +110,17 @@ CHART_SPEC_SCHEMA: dict[str, Any] = {
                     "oneOf": [{"type": "boolean"}, {"const": "auto"}],
                 },
                 "initialZoom": {
-                    "type": "number",
-                    "exclusiveMinimum": 0,
-                    "maximum": 100,
+                    "oneOf": [
+                        {"type": "number", "exclusiveMinimum": 0},
+                        {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "x": {"type": "number", "exclusiveMinimum": 0},
+                                "y": {"type": "number", "exclusiveMinimum": 0},
+                            },
+                        },
+                    ],
                 },
                 "timeFormat": {
                     "type": "string",

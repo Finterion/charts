@@ -28,11 +28,22 @@ export interface ChartProps {
    */
   initialFit?: 'recent' | 'all';
   /**
-   * Initial viewport as a percentage of the buffer visible. `(0, 100]`.
-   * `100` = fully zoomed out (all bars). Smaller values zoom in
-   * (e.g. `25` shows the most recent quarter). When set, overrides `initialFit`.
+   * Initial viewport as a percentage of the buffer visible. Accepts either
+   * a single number (applied to both axes) or an object `{ x?, y? }` to
+   * zoom the two axes independently. Any missing axis defaults to `100`.
+   *
+   * - `100` fits the axis snugly to the data.
+   * - Values `< 100` zoom IN (fewer bars on x; compressed range on y).
+   * - Values `> 100` zoom OUT past the data, adding empty padding.
+   *
+   * When set, overrides `initialFit`.
+   *
+   * @example
+   * initialZoom={120}                    // 10% padding on both axes
+   * initialZoom={{ x: 50, y: 100 }}      // zoom in on x, fit y
+   * initialZoom={{ x: 100, y: 200 }}     // fit x, 50% padding on y
    */
-  initialZoom?: number;
+  initialZoom?: number | { x?: number; y?: number };
   /** Pixel gap between stacked panels. */
   panelGap?: number;
   /** Default title color for all panels. */

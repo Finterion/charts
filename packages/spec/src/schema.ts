@@ -97,7 +97,19 @@ export const CHART_SPEC_SCHEMA = {
             { const: 'auto' },
           ],
         },
-        initialZoom: { type: 'number', exclusiveMinimum: 0, maximum: 100 },
+        initialZoom: {
+          oneOf: [
+            { type: 'number', exclusiveMinimum: 0 },
+            {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                x: { type: 'number', exclusiveMinimum: 0 },
+                y: { type: 'number', exclusiveMinimum: 0 },
+              },
+            },
+          ],
+        },
         timeFormat: {
           type: 'string',
           minLength: 1,

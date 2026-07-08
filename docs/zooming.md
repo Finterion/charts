@@ -35,12 +35,29 @@ Chooses what is visible when the chart first mounts.
 
 ### `initialZoom`
 
-A percentage `(0, 100]` of the buffer to show on mount. `100` is fully
-zoomed out (identical to `initialFit="all"`); smaller values zoom in.
+A percentage of the buffer to show on mount. `100` fits every bar snugly
+(identical to `initialFit="all"`). Smaller values zoom in; values greater
+than `100` zoom **out** past the data extent, adding empty padding.
+
+Accepts either a single number (applied to both axes) or an object
+`{ x?, y? }` to zoom the two axes independently. Any missing axis
+defaults to `100`.
 
 ```tsx
-// Show the most recent 25 % of bars
+// Show the most recent 25 % of bars (both axes fit)
 <Chart initialZoom={25} ... />
+
+// Fit all bars snugly (same as initialFit="all")
+<Chart initialZoom={100} ... />
+
+// Fit all bars with ~10 % empty padding on each edge (both axes)
+<Chart initialZoom={120} ... />
+
+// Zoom in on the x-axis, fit y
+<Chart initialZoom={{ x: 50, y: 100 }} ... />
+
+// Fit x, add 50 % vertical breathing room on the y-axis
+<Chart initialZoom={{ x: 100, y: 200 }} ... />
 ```
 
 When `initialZoom` is set it overrides `initialFit`.

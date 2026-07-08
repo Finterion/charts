@@ -79,8 +79,17 @@ export class Chart {
   private legendSidebar: HTMLDivElement;
   private chartCol: HTMLDivElement;
   private initialFit: 'recent' | 'all' = 'recent';
-  /** Initial viewport as a percentage of the buffer (`(0, 100]`). `undefined` = fall back to `initialFit`. */
-  private initialZoom: number | undefined = undefined;
+  /** Initial X-axis zoom as a percentage of the buffer. `undefined` = fall back to `initialFit`. */
+  private initialZoomX: number | undefined = undefined;
+  /** Initial Y-axis zoom as a percentage of the data range. `undefined` = fit. */
+  private initialZoomY: number | undefined = undefined;
+  /**
+   * Y-scale factor applied to every newly-created panel until the user
+   * interacts with the y-axis (drag or double-click). Used by `initialZoom`
+   * y-values `!= 100` to persist vertical scaling that survives React
+   * re-mounting the panels via `setPanels`. `null` = no initial y-scale.
+   */
+  private initialYScale: number | null = null;
   /** "Powered by Finterion" attribution badge element. `null` when hidden. */
   private brandingEl: HTMLAnchorElement | HTMLDivElement | null = null;
   /** Dedicated row below the time axis that hosts the badge. `null` when hidden. */
@@ -144,9 +153,26 @@ export class Chart {
     this.panelsContainer.appendChild(this.rightAxis);
 
     if (options.initialFit) this.initialFit = options.initialFit;
-    if (options.initialZoom !== undefined && Number.isFinite(options.initialZoom) && options.initialZoom > 0) {
-      // Clamp to (0, 100] — a percentage of the buffer to show.
-      this.initialZoom = Math.min(100, options.initialZoom);
+    if (options.initialZoom !== undefined) {
+      // Normalize `number | { x?, y? }` into independent x/y percentages.
+      // Missing axis defaults to 100 (fit). Values <= 0 or non-finite are
+      // ignored — an axis stays undefined and falls back to `initialFit`.
+      let rawX: number | undefined;
+      let rawY: number | undefined;
+      if (typeof options.initialZoom === 'number') {
+        rawX = options.initialZoom;
+        rawY = options.initialZoom;
+      } else {
+        rawX = options.initialZoom.x;
+        rawY = options.initialZoom.y;
+      }
+      if (rawX !== undefined && Number.isFinite(rawX) && rawX > 0) {
+        this.initialZoomX = rawX;
+      }
+      if (rawY !== undefined && Number.isFinite(rawY) && rawY > 0) {
+        this.initialZoomY = rawY;
+        if (rawY !== 100) this.initialYScale = rawY / 100;
+      }
     }
     if (options.panels) this.setPanels(options.panels);
     if (options.markers) this.markers = options.markers;
@@ -169,16 +195,39 @@ export class Chart {
     const wasFollowing = this.viewport.endIdx >= (this.buf?.length ?? 1) - 1;
     this.buf = buf;
     if (this.viewport.endIdx === 0 && this.viewport.startIdx === 0) {
-      let span: number;
-      if (this.initialZoom !== undefined) {
-        // Percentage-of-buffer semantics: 100 = all bars, 50 = last half, etc.
-        span = Math.max(1, Math.min(buf.length - 1, Math.round((buf.length - 1) * this.initialZoom / 100)));
+      if (this.initialZoomX !== undefined && this.initialZoomX > 100) {
+        // Zoom OUT past the data on X: extend viewport symmetrically beyond
+        // the buffer bounds. `120` -> viewport spans 1.2x the data, i.e. 10%
+        // empty padding on each side. The renderers clamp data reads to
+        // valid indices, so out-of-range slots simply render as empty
+        // canvas — visual breathing room.
+        const dataSpan = Math.max(1, buf.length - 1);
+        const totalSpan = dataSpan * (this.initialZoomX / 100);
+        const extra = totalSpan - dataSpan;
+        const padLeft = Math.round(extra / 2);
+        const padRight = Math.round(extra - padLeft);
+        this.viewport = {
+          startIdx: -padLeft,
+          endIdx: (buf.length - 1) + padRight,
+        };
       } else {
-        span = this.initialFit === 'all'
-          ? buf.length - 1
-          : Math.min(200, buf.length - 1);
+        let span: number;
+        if (this.initialZoomX !== undefined) {
+          // Percentage-of-buffer semantics: 100 = all bars, 50 = last half, etc.
+          span = Math.max(1, Math.min(buf.length - 1, Math.round((buf.length - 1) * this.initialZoomX / 100)));
+        } else {
+          span = this.initialFit === 'all'
+            ? buf.length - 1
+            : Math.min(200, buf.length - 1);
+        }
+        this.viewport = { startIdx: Math.max(0, buf.length - 1 - span), endIdx: buf.length - 1 };
       }
-      this.viewport = { startIdx: Math.max(0, buf.length - 1 - span), endIdx: buf.length - 1 };
+      // Y-axis scale is orthogonal to the X viewport: `initialYScale` was
+      // set from `initialZoom.y` in the constructor and is applied to
+      // every panel here + in `setPanels` (survives React re-mounts).
+      if (this.initialYScale !== null) {
+        for (const p of this.panels) p.yScale = this.initialYScale;
+      }
     } else if (wasFollowing) {
       const span = this.viewport.endIdx - this.viewport.startIdx;
       this.viewport = { startIdx: Math.max(0, buf.length - 1 - span), endIdx: buf.length - 1 };
@@ -191,6 +240,10 @@ export class Chart {
     this.panels = panels.map((s, i) => {
       const panel = new Panel(s);
       panel.hooks = this.makePanelHooks(i);
+      // Preserve the `initialZoom > 100` vertical breathing room across
+      // panel re-mounts (React fires setPanels after setData on first
+      // render, which would otherwise reset yScale back to 1).
+      if (this.initialYScale !== null) panel.yScale = this.initialYScale;
       return panel;
     });
     for (const p of this.panels) this.panelsContainer.appendChild(p.el);
@@ -552,6 +605,9 @@ export class Chart {
       this.attachAxisDrag(this.bottomAxis, 'x');
       this.rightAxis.addEventListener('dblclick', () => {
         for (const p of this.panels) p.yScale = 1;
+        // User explicitly reset the Y-axis — forget the initial padding
+        // factor so subsequent panel re-mounts don't re-inflate the range.
+        this.initialYScale = null;
         this.markDirty('base', 'series');
       });
       this.bottomAxis.addEventListener('dblclick', () => {
@@ -611,6 +667,9 @@ export class Chart {
         const p = this.panels[panelIdx];
         if (p) {
           p.yScale = newScale;
+          // User has taken over Y-scale — drop the initial padding factor
+          // so panel re-mounts don't override their manual scale.
+          this.initialYScale = null;
           this.markDirty('base', 'series');
         }
       }

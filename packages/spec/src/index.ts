@@ -88,12 +88,18 @@ export interface ChartSpec {
     /** Show inline legend with toggles. `'auto'` (default) shows it for any panel that has labeled series. */
     showLegend?: boolean | 'auto';
     /**
-     * Initial zoom as a percentage of the buffer visible. `100` = fully
-     * zoomed out (all bars); smaller values zoom IN (fewer bars). Range:
-     * `(0, 100]`. When omitted, the engine falls back to `initialFit`
-     * (~200 bars by default).
+     * Initial zoom as a percentage of the buffer visible. Accepts either a
+     * single number (applied to both axes) or an object `{ x?, y? }` to
+     * zoom the two axes independently. Any missing axis defaults to `100`.
+     *
+     * - `100` fits the axis snugly to the data.
+     * - Values `< 100` zoom IN.
+     * - Values `> 100` zoom OUT past the data, adding empty padding.
+     *
+     * When omitted, the engine falls back to `initialFit` (~200 bars by
+     * default).
      */
-    initialZoom?: number;
+    initialZoom?: number | { x?: number; y?: number };
     /**
      * Time-axis label format. Accepts:
      *   - `'duration'` — format axis (and tooltip) values as elapsed

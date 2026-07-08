@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from math import isfinite, isnan
-from typing import Any, Iterable, Literal, Sequence, Union
+from typing import Any, Iterable, Literal, Mapping, Sequence, Union
 
 from .codec import encode_spec
 from .schema import SPEC_VERSION
@@ -747,9 +747,22 @@ class Display:
     show_time_axis: bool | None = None
     show_legend: bool | Literal["auto"] | None = None
     #: Initial viewport as a percentage of the buffer visible.
-    #: ``100`` = fully zoomed out (all bars). Smaller values zoom IN
-    #: (e.g. ``25`` shows the most recent quarter). Range: ``(0, 100]``.
-    initial_zoom: float | None = None
+    #:
+    #: Accepts either a single number (applied to both axes) or a mapping
+    #: ``{"x": ..., "y": ...}`` to zoom the two axes independently. Any
+    #: missing axis defaults to ``100`` (fit-to-data).
+    #:
+    #: - ``100`` fits the axis snugly to the data.
+    #: - Values ``< 100`` zoom IN.
+    #: - Values ``> 100`` zoom OUT past the data extent, adding empty
+    #:   padding on that axis.
+    #:
+    #: Examples::
+    #:
+    #:     initial_zoom=120                       # 10% padding on both axes
+    #:     initial_zoom={"x": 50, "y": 100}       # zoom in on x, fit y
+    #:     initial_zoom={"x": 100, "y": 200}      # fit x, 50% padding on y
+    initial_zoom: float | Mapping[str, float] | None = None
     #: Time-axis label format.
     #:
     #: - ``"duration"`` — render tick labels as elapsed durations
@@ -791,13 +804,32 @@ class Display:
         if self.show_legend is not None:
             d["showLegend"] = self.show_legend
         if self.initial_zoom is not None:
-            iz = float(self.initial_zoom)
-            if not (0 < iz <= 100):
-                raise ValueError(
-                    f"initial_zoom must be in the range (0, 100] (got {iz}). "
-                    "100 = fully zoomed out (all bars visible)."
-                )
-            d["initialZoom"] = iz
+            if isinstance(self.initial_zoom, Mapping):
+                axes: dict[str, float] = {}
+                for key in ("x", "y"):
+                    if key in self.initial_zoom:
+                        val = float(self.initial_zoom[key])
+                        if val <= 0:
+                            raise ValueError(
+                                f"initial_zoom['{key}'] must be > 0 (got {val})."
+                            )
+                        axes[key] = val
+                extra = set(self.initial_zoom) - {"x", "y"}
+                if extra:
+                    raise ValueError(
+                        f"initial_zoom mapping accepts only 'x' and 'y' keys "
+                        f"(got extra: {sorted(extra)})."
+                    )
+                d["initialZoom"] = axes
+            else:
+                iz = float(self.initial_zoom)
+                if iz <= 0:
+                    raise ValueError(
+                        f"initial_zoom must be > 0 (got {iz}). "
+                        "100 fits every bar snugly; <100 zooms in; >100 zooms out "
+                        "past the data extent, adding padding on both axes."
+                    )
+                d["initialZoom"] = iz
         if self.time_format is not None:
             tf = str(self.time_format)
             if not tf:
@@ -901,7 +933,7 @@ class ChartSpec:
         title_space: float | None = None,
         show_time_axis: bool | None = None,
         show_legend: bool | Literal["auto"] | None = None,
-        initial_zoom: float | None = None,
+        initial_zoom: float | Mapping[str, float] | None = None,
         branding: bool | Branding | None = None,
         time_format: str | None = None,
     ) -> None:

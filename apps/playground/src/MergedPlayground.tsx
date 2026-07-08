@@ -14,6 +14,7 @@ import { PortfolioOverview } from './PortfolioOverview';
 import { EquityCurvesDemo } from './EquityCurvesDemo';
 import { TerminalGreenDemo } from './TerminalGreenDemo';
 import { LoadingDemo } from './LoadingDemo';
+import { ZoomLevelsDemo } from './ZoomLevelsDemo';
 import { colors, radii, spacing } from './finterion/tokens';
 import {
   PLAYGROUND_THEMES,
@@ -58,6 +59,12 @@ const SECTIONS: Section[] = [
     label: 'Equity',
     description: '20 algorithm equity curves with sidebar legend',
     Component: EquityCurvesDemo,
+  },
+  {
+    id: 'zoom-levels',
+    label: 'Zoom Levels',
+    description: 'Three equity-curve overlays showing initialZoom 50 / 100 / 120',
+    Component: ZoomLevelsDemo,
   },
   {
     id: 'supertrend',

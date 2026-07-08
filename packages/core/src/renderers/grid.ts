@@ -88,9 +88,22 @@ export function computeTimeTicks(
   width: number,
 ): { t: number; x: number; stepMs: number }[] {
   if (viewport.endIdx < viewport.startIdx) return [];
-  const tStart = times[viewport.startIdx];
-  const tEnd = times[viewport.endIdx];
-  if (tStart === undefined || tEnd === undefined || tEnd <= tStart) return [];
+  const n = times.length;
+  if (n === 0) return [];
+  // The viewport may extend outside the data (e.g. when `initialZoom > 100`
+  // adds empty padding). Read the actual data-anchored timestamps from
+  // clamped indices, then linearly extrapolate to whatever the viewport's
+  // startIdx/endIdx point to using the mean bar interval.
+  const clampedStart = Math.max(0, Math.min(n - 1, viewport.startIdx));
+  const clampedEnd = Math.max(0, Math.min(n - 1, viewport.endIdx));
+  const tStartData = times[clampedStart];
+  const tEndData = times[clampedEnd];
+  if (tStartData === undefined || tEndData === undefined) return [];
+  const dataSpan = Math.max(1, clampedEnd - clampedStart);
+  const meanBarMs = n > 1 ? (times[n - 1]! - times[0]!) / (n - 1) : (tEndData - tStartData) / dataSpan || 1;
+  const tStart = tStartData + (viewport.startIdx - clampedStart) * meanBarMs;
+  const tEnd = tEndData + (viewport.endIdx - clampedEnd) * meanBarMs;
+  if (tEnd <= tStart) return [];
   const totalMs = tEnd - tStart;
   const targetCount = Math.max(3, Math.floor(width / 100));
   const span = viewport.endIdx - viewport.startIdx + 1;
@@ -98,14 +111,22 @@ export function computeTimeTicks(
   const idxFromTime = (t: number): number => {
     if (t <= tStart) return viewport.startIdx;
     if (t >= tEnd) return viewport.endIdx;
-    let lo = viewport.startIdx;
-    let hi = viewport.endIdx;
+    // Data-anchored region uses actual per-bar timestamps; padded regions
+    // (outside [clampedStart, clampedEnd]) fall back to linear extrapolation.
+    if (t <= tStartData) {
+      return clampedStart - (tStartData - t) / meanBarMs;
+    }
+    if (t >= tEndData) {
+      return clampedEnd + (t - tEndData) / meanBarMs;
+    }
+    let lo = clampedStart;
+    let hi = clampedEnd;
     while (lo < hi) {
       const mid = (lo + hi) >> 1;
       if (times[mid]! < t) lo = mid + 1;
       else hi = mid;
     }
-    if (lo > viewport.startIdx) {
+    if (lo > clampedStart) {
       const t0 = times[lo - 1]!;
       const t1 = times[lo]!;
       if (t1 > t0) return lo - 1 + (t - t0) / (t1 - t0);
@@ -130,16 +151,19 @@ export function computeTimeTicks(
   }
 
   if (!bestTicks || bestTicks.length < 2) {
-    const n = Math.max(2, Math.min(targetCount, span));
+    const nTicks = Math.max(2, Math.min(targetCount, span));
     const out: { t: number; x: number; stepMs: number }[] = [];
     const avgBarMs = totalMs / Math.max(1, span - 1);
-    const stepMs = avgBarMs * (span / n);
-    for (let k = 0; k < n; k++) {
-      const idx = viewport.startIdx + Math.round((k + 0.5) * (span / n) - 0.5);
-      const clamped = Math.max(viewport.startIdx, Math.min(viewport.endIdx, idx));
-      const t = times[clamped];
-      if (t === undefined) continue;
-      const x = ((clamped - viewport.startIdx + 0.5) / span) * width;
+    const stepMs = avgBarMs * (span / nTicks);
+    for (let k = 0; k < nTicks; k++) {
+      const idx = viewport.startIdx + Math.round((k + 0.5) * (span / nTicks) - 0.5);
+      // Clamp to viewport for x-positioning but derive `t` from data-bounded
+      // indices + extrapolation, so ticks in padded regions still get labels.
+      const dataIdx = Math.max(0, Math.min(n - 1, idx));
+      const tBase = times[dataIdx];
+      if (tBase === undefined) continue;
+      const t = tBase + (idx - dataIdx) * meanBarMs;
+      const x = ((idx - viewport.startIdx + 0.5) / span) * width;
       out.push({ t, x, stepMs });
     }
     return out;

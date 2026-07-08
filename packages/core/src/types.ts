@@ -240,16 +240,30 @@ export interface ChartOptions {
   initialFit?: 'recent' | 'all';
   /**
    * Initial zoom level as a percentage of the total buffer visible.
-   * - `100` (or omitted with `initialFit: 'all'`): fully zoomed out — every
-   *   bar in the buffer is visible.
-   * - smaller values zoom IN (fewer bars visible). e.g. `25` shows the most
-   *   recent quarter of the buffer.
-   * - must be in the half-open range `(0, 100]`.
    *
-   * When omitted, the engine falls back to `initialFit` (~200 bars by default).
-   * When set, `initialZoom` overrides `initialFit`.
+   * Accepts either a single number (applied to both axes) or an object
+   * `{ x?, y? }` to zoom the two axes independently. Any missing axis
+   * defaults to `100` (fit-to-data).
+   *
+   * - `100` fits the axis snugly to the data (same as `initialFit: 'all'`
+   *   on the x-axis).
+   * - Values `< 100` zoom IN. On the x-axis this shows a smaller slice of
+   *   the buffer (e.g. `25` = most recent quarter). On the y-axis it
+   *   compresses the visible range (clips the extremes).
+   * - Values `> 100` zoom OUT past the data extent, adding empty padding.
+   *   On the x-axis, extra bars of empty canvas are drawn on either side.
+   *   On the y-axis, the range is expanded around the midpoint. e.g.
+   *   `120` adds ~10% breathing room per edge.
+   *
+   * When omitted, the engine falls back to `initialFit` (~200 bars by
+   * default). When set, `initialZoom` overrides `initialFit`.
+   *
+   * @example
+   * initialZoom: 120                    // 10% padding on both axes
+   * initialZoom: { x: 50, y: 100 }      // zoom in on x, fit y
+   * initialZoom: { x: 100, y: 200 }     // fit x, 50% padding on y
    */
-  initialZoom?: number;
+  initialZoom?: number | { x?: number; y?: number };
   /** Pixel gap between stacked panels. Default 0. */
   panelGap?: number;
   /** Default title color for all panels. Per-panel `titleColor` overrides this. */
