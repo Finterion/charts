@@ -310,6 +310,33 @@ CHART_SPEC_SCHEMA: dict[str, Any] = {
                         },
                     ]
                 },
+                # vbar
+                {
+                    "allOf": [
+                        {"$ref": "#/$defs/panelBase"},
+                        {
+                            "type": "object",
+                            "required": ["kind", "categories", "values"],
+                            "properties": {
+                                "kind": {"const": "vbar"},
+                                "categories": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                },
+                                "values": {
+                                    "type": "array",
+                                    "items": {"type": "number"},
+                                },
+                                "positiveColor": {"$ref": "#/$defs/color"},
+                                "negativeColor": {"$ref": "#/$defs/color"},
+                                "showMean": {"type": "boolean"},
+                                "format": {"$ref": "#/$defs/formatDirective"},
+                                "xLabel": {"type": "string"},
+                                "yLabel": {"type": "string"},
+                            },
+                        },
+                    ]
+                },
                 # histogram
                 {
                     "allOf": [

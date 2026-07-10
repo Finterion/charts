@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { App } from './App';
 import { LineChartDemo } from './LineChartDemo';
 import { MonthlyChartDemo } from './MonthlyChartDemo';
+import { BarChartsDemo } from './BarChartsDemo';
 import { TrainTestDemo } from './TrainTestDemo';
 import { SuperTrendDemo } from './SuperTrendDemo';
 import { PortfolioOverview } from './PortfolioOverview';
@@ -47,6 +48,12 @@ const SECTIONS: Section[] = [
     label: 'Monthly Returns',
     description: 'Synthetic 11-year monthly returns heatmap · terminal-green style',
     Component: MonthlyChartDemo,
+  },
+  {
+    id: 'bar-charts',
+    label: 'Bar Charts',
+    description: 'hbar (horizontal) + vbar (vertical) categorical bars',
+    Component: BarChartsDemo,
   },
   {
     id: 'train-test',

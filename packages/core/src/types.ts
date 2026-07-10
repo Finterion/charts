@@ -128,6 +128,7 @@ export type PanelKind =
   | 'indicator'
   | 'heatmap'
   | 'hbar'
+  | 'vbar'
   | 'histogram'
   | 'scatter';
 
@@ -158,6 +159,31 @@ export interface HBarData {
   /** Color for negative bars. Default: theme.down. */
   negativeColor?: string;
   /** Draw a dashed mean line. Default: false. */
+  showMean?: boolean;
+  /** Value label formatter. Default: `(v) => v.toFixed(1)`. */
+  format?: (v: number) => string;
+  xLabel?: string;
+  yLabel?: string;
+}
+
+/**
+ * Vertical bar chart with categorical x-axis and value y-axis. Mirrors
+ * `HBarData` rotated 90°.
+ *
+ * The y-range is symmetric around zero when the data has mixed signs
+ * (matching `hbar`'s look for signed returns) and tight around min/max
+ * otherwise, so all-positive datasets (counts, magnitudes) fill the plot.
+ */
+export interface VBarData {
+  /** x-axis labels, left to right. */
+  categories: string[];
+  /** Numeric value for each category (same length as `categories`). */
+  values: number[];
+  /** Color for positive bars. Default: theme.up. */
+  positiveColor?: string;
+  /** Color for negative bars. Default: theme.down. */
+  negativeColor?: string;
+  /** Draw a dashed mean line (horizontal). Default: false. */
   showMean?: boolean;
   /** Value label formatter. Default: `(v) => v.toFixed(1)`. */
   format?: (v: number) => string;
@@ -219,6 +245,8 @@ export interface PanelSpec {
   heatmap?: HeatmapData;
   /** For 'hbar' panels. */
   hbar?: HBarData;
+  /** For 'vbar' panels. */
+  vbar?: VBarData;
   /** For 'histogram' panels. */
   histogram?: HistogramData;
   /** For 'scatter' panels. */

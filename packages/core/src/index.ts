@@ -13,6 +13,7 @@ export type {
   ChartOptions,
   HeatmapData,
   HBarData,
+  VBarData,
   HistogramData,
   ScatterData,
   BrandingOptions,

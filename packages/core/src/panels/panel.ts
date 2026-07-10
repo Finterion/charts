@@ -7,6 +7,7 @@ import { renderIndicator, indicatorExtrema } from '../renderers/indicator';
 import { renderMarkers } from '../renderers/markers';
 import { renderHeatmap } from '../renderers/heatmap';
 import { renderHBar } from '../renderers/hbar';
+import { renderVBar } from '../renderers/vbar';
 import { renderValueHistogram } from '../renderers/histogramValue';
 import { renderScatter } from '../renderers/scatter';
 import type { PanelLayout } from '../renderers/layout';
@@ -165,6 +166,8 @@ export class Panel {
       renderHeatmap(ctx, this.width, dataHeight, this.spec.heatmap, theme);
     } else if (this.spec.kind === 'hbar' && this.spec.hbar) {
       renderHBar(ctx, this.width, dataHeight, this.spec.hbar, theme);
+    } else if (this.spec.kind === 'vbar' && this.spec.vbar) {
+      renderVBar(ctx, this.width, dataHeight, this.spec.vbar, theme);
     } else if (this.spec.kind === 'histogram' && this.spec.histogram) {
       renderValueHistogram(ctx, this.width, dataHeight, this.spec.histogram, theme);
     } else if (this.spec.kind === 'scatter' && this.spec.scatter) {

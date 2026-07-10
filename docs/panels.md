@@ -98,6 +98,26 @@ use `negativeColor`. `showMean: true` draws a dashed mean line.
 }
 ```
 
+## `vbar`
+
+Vertical counterpart of `hbar` — categorical `x`-axis, value `y`-axis. Same
+options as `hbar` (`categories`, `values`, `positiveColor`, `negativeColor`,
+`showMean`, `format`, `xLabel`, `yLabel`). Mixed-sign data is drawn symmetric
+around zero; all-positive data (bar counts, magnitudes) is drawn in a tight
+range so it fills the plot.
+
+```ts
+{
+  id: 'monthly-pnl', kind: 'vbar', weight: 1, title: 'Monthly P&L',
+  vbar: {
+    categories: ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'],
+    values: [0.03, -0.01, 0.05, 0.02, -0.02, 0.04, 0.01, 0.03, -0.03, 0.02, 0.05, 0.04],
+    showMean: true,
+    format: (v) => `${(v * 100).toFixed(1)}%`,
+  },
+}
+```
+
 ## `histogram`
 
 Equal-width bins of raw observations. Distinct from `indicator` `kind:

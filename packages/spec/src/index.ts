@@ -30,6 +30,7 @@ import type {
   SeriesType,
   ThemeName,
   TradeMarker,
+  VBarData,
 } from '@finterion/charts-core';
 
 // Re-export so consumers can `import type { LineStyle } from '@finterion/charts-spec'`.
@@ -128,6 +129,7 @@ export type PanelSpecSpec =
   | IndicatorPanelSpec
   | HeatmapPanelSpec
   | HBarPanelSpec
+  | VBarPanelSpec
   | HistogramPanelSpec
   | ScatterPanelSpec;
 
@@ -206,6 +208,18 @@ export interface HBarPanelSpec extends BasePanelSpec {
   yLabel?: string;
 }
 
+export interface VBarPanelSpec extends BasePanelSpec {
+  kind: 'vbar';
+  categories: string[];
+  values: number[];
+  positiveColor?: string;
+  negativeColor?: string;
+  showMean?: boolean;
+  format?: FormatDirective;
+  xLabel?: string;
+  yLabel?: string;
+}
+
 export interface HistogramPanelSpec extends BasePanelSpec {
   kind: 'histogram';
   values: number[];
@@ -273,7 +287,7 @@ export interface ValidationResult {
   errors: string[];
 }
 
-const PANEL_KINDS: PanelKind[] = ['price', 'indicator', 'heatmap', 'hbar', 'histogram', 'scatter'];
+const PANEL_KINDS: PanelKind[] = ['price', 'indicator', 'heatmap', 'hbar', 'vbar', 'histogram', 'scatter'];
 
 export function validateSpec(spec: unknown): ValidationResult {
   const errors: string[] = [];
@@ -450,6 +464,21 @@ function compilePanel(p: PanelSpecSpec, columns: Record<string, (number | null)[
       if (p.xLabel !== undefined) h.xLabel = p.xLabel;
       if (p.yLabel !== undefined) h.yLabel = p.yLabel;
       base.hbar = h;
+      return base;
+    }
+    case 'vbar': {
+      const h: VBarData = {
+        categories: p.categories,
+        values: p.values,
+      };
+      if (p.positiveColor !== undefined) h.positiveColor = p.positiveColor;
+      if (p.negativeColor !== undefined) h.negativeColor = p.negativeColor;
+      if (p.showMean !== undefined) h.showMean = p.showMean;
+      const f = fmt(p.format);
+      if (f) h.format = f;
+      if (p.xLabel !== undefined) h.xLabel = p.xLabel;
+      if (p.yLabel !== undefined) h.yLabel = p.yLabel;
+      base.vbar = h;
       return base;
     }
     case 'histogram': {

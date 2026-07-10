@@ -593,6 +593,44 @@ class HBar(_BasePanel):
 
 
 @dataclass
+class VBar(_BasePanel):
+    """Vertical bar chart with a categorical x-axis and a value y-axis.
+
+    Mirror of :class:`HBar` rotated 90°. The y-range is symmetric around
+    zero when the data has mixed signs (matching ``hbar`` for signed
+    returns) and tight around min/max otherwise, so all-positive datasets
+    (counts, magnitudes) fill the plot.
+    """
+
+    categories: Sequence[str] = ()
+    values: NumericSeq = ()
+    positive_color: str | None = None
+    negative_color: str | None = None
+    show_mean: bool | None = None
+    format: FormatDirective | None = None
+    x_label: str | None = None
+    y_label: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        d = self._base("vbar")
+        d["categories"] = list(self.categories)
+        d["values"] = _to_jsonable_floats(self.values, allow_null=False)
+        if self.positive_color is not None:
+            d["positiveColor"] = self.positive_color
+        if self.negative_color is not None:
+            d["negativeColor"] = self.negative_color
+        if self.show_mean is not None:
+            d["showMean"] = bool(self.show_mean)
+        if self.format is not None:
+            d["format"] = self.format
+        if self.x_label is not None:
+            d["xLabel"] = self.x_label
+        if self.y_label is not None:
+            d["yLabel"] = self.y_label
+        return d
+
+
+@dataclass
 class Histogram(_BasePanel):
     values: NumericSeq = ()
     bins: int | None = None
@@ -664,7 +702,7 @@ class Scatter(_BasePanel):
         return d
 
 
-Panel = Union[Price, IndicatorPanel, Heatmap, HBar, Histogram, Scatter]
+Panel = Union[Price, IndicatorPanel, Heatmap, HBar, VBar, Histogram, Scatter]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1189,4 +1227,5 @@ __all__ = [
     "Panel",
     "Price",
     "Scatter",
+    "VBar",
 ]

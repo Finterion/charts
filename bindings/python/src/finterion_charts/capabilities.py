@@ -34,7 +34,7 @@ class ChartCapabilities:
 
 _CAPABILITIES = ChartCapabilities(
     version=1,
-    panel_kinds=("price", "indicator", "heatmap", "hbar", "histogram", "scatter"),
+    panel_kinds=("price", "indicator", "heatmap", "hbar", "vbar", "histogram", "scatter"),
     indicator_kinds=("line", "histogram", "area", "band"),
     series_types=("candles", "line", "area"),
     format_directives=(

@@ -21,6 +21,7 @@ from finterion_charts import (
     Marker,
     Price,
     Scatter,
+    VBar,
     align_by_duration,
     get_chart_capabilities,
     validate_schema,
@@ -151,10 +152,45 @@ def test_self_contained_panels_compile_without_bars():
         .add_panel(
             HBar(id="b", weight=1, categories=["a", "b"], values=[0.1, -0.2])
         )
+        .add_panel(
+            VBar(id="v", weight=1, categories=["a", "b"], values=[0.1, -0.2])
+        )
         .add_panel(Histogram(id="d", weight=1, values=[1.0, 2.0, 3.0], bins=4))
         .add_panel(Scatter(id="s", weight=1, points=[(0.0, 0.1), (1.0, 0.2)]))
     )
     spec.validate()
+
+
+def test_vbar_panel_serialises_all_options():
+    pytest.importorskip("jsonschema")
+    spec = ChartSpec().add_panel(
+        VBar(
+            id="pnl",
+            weight=1,
+            title="Monthly P&L",
+            categories=["Jan", "Feb", "Mar"],
+            values=[0.03, -0.01, 0.05],
+            positive_color="#1a7f37",
+            negative_color="#cf222e",
+            show_mean=True,
+            format="pct1",
+            x_label="Month",
+            y_label="Return",
+        )
+    )
+    d = spec.to_dict()
+    panel = d["panels"][0]
+    assert panel["kind"] == "vbar"
+    assert panel["categories"] == ["Jan", "Feb", "Mar"]
+    assert panel["values"] == [0.03, -0.01, 0.05]
+    assert panel["positiveColor"] == "#1a7f37"
+    assert panel["negativeColor"] == "#cf222e"
+    assert panel["showMean"] is True
+    assert panel["format"] == "pct1"
+    assert panel["xLabel"] == "Month"
+    assert panel["yLabel"] == "Return"
+    # And it passes strict JSON Schema validation.
+    spec.validate(strict=True)
 
 
 def test_chartspec_requires_at_least_one_panel():

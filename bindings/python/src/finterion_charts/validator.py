@@ -20,7 +20,7 @@ from typing import Any
 
 from .schema import CHART_SPEC_SCHEMA
 
-_PANEL_KINDS = ("price", "indicator", "heatmap", "hbar", "histogram", "scatter")
+_PANEL_KINDS = ("price", "indicator", "heatmap", "hbar", "vbar", "histogram", "scatter")
 
 
 @dataclass

@@ -23,6 +23,7 @@ from .builder import (
     SeriesTypeName,
     Theme,
     ThemeName,
+    VBar,
     align_by_duration,
 )
 from .capabilities import ChartCapabilities, get_chart_capabilities
@@ -52,6 +53,7 @@ __all__ = [
     "Theme",
     "ThemeName",
     "ValidationResult",
+    "VBar",
     "align_by_duration",
     "decode_spec",
     "encode_spec",
