@@ -28,7 +28,7 @@ schema  = ["jsonschema>=4.17"]
 pandas  = ["pandas>=2.0", "numpy>=1.24"]
 jupyter = ["ipython>=8.0"]
 all     = ["jsonschema>=4.17", "pandas>=2.0", "numpy>=1.24", "ipython>=8.0"]
-dev     = ["pytest>=7.4", "jsonschema>=4.17", "pandas>=2.0", "numpy>=1.24"]
+dev     = ["pytest>=7.4", "jsonschema>=4.17", "pandas>=2.0", "numpy>=1.24", "ipython>=8.0"]
 
 [project.urls]
 Homepage = "https://github.com/Finterion/charts"
