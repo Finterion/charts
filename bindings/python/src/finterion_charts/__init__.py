@@ -27,15 +27,17 @@ from .builder import (
     align_by_duration,
 )
 from .capabilities import ChartCapabilities, get_chart_capabilities
+from .canvas import ChartCanvas
 from .codec import decode_spec, encode_spec
 from .schema import CHART_SPEC_SCHEMA, SPEC_VERSION
 from .validator import ValidationResult, validate_schema, validate_spec
 
 __all__ = [
-    "CHART_SPEC_SCHEMA",
     "AlignedCurves",
+    "CHART_SPEC_SCHEMA",
     "Branding",
     "ChartCapabilities",
+    "ChartCanvas",
     "ChartSpec",
     "Display",
     "HBar",
@@ -62,4 +64,4 @@ __all__ = [
     "validate_spec",
 ]
 
-__version__ = "1.0.0"
+__version__ = "1.4.0+indicator.markers.inspector.resize.eligibility.axis.rejections.portfolio"

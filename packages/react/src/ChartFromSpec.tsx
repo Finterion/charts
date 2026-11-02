@@ -57,7 +57,7 @@ export function ChartFromSpec({ spec, className, style, fallback }: ChartFromSpe
     );
   }
 
-  const { data, panels, options, markers } = compiled.compiled;
+  const { data, panels, options, markers, decisions } = compiled.compiled;
 
   return (
     <Chart
@@ -66,11 +66,13 @@ export function ChartFromSpec({ spec, className, style, fallback }: ChartFromSpe
       data={data}
       panels={panels}
       markers={markers}
+      decisions={decisions}
       theme={options.theme as ThemeName | undefined}
       background={options.background}
       gridColor={options.gridColor}
       gridStyle={options.gridStyle}
       panelGap={options.panelGap}
+      chartMinHeight={options.chartMinHeight}
       titleColor={options.titleColor}
       titleFontSize={options.titleFontSize}
       titleSpace={options.titleSpace}

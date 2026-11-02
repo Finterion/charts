@@ -1,11 +1,15 @@
-import type { BrandingOptions, ChartOptions, OHLCBuffer, PanelSpec, ThemeTokens, TradeMarker, Viewport } from '../types';
+import type { BrandingOptions, ChartOptions, DecisionAnnotation, OHLCBuffer, PanelSpec, ThemeTokens, TradeMarker, Viewport } from '../types';
+import { DecisionIndex, DecisionInspector, decisionColor, decisionTypeKey, decisionTypeLabel, decisionX, renderDecisions, validateDecisions, type DecisionHit } from './decisions';
 import { resolveTheme } from '../themes';
 import { Panel, isTimePanel, type LegendMode, type PanelHooks } from './panel';
 import { attachPanZoom } from '../interactions/panZoom';
-import { xCenter } from '../renderers/layout';
+import { xCenter, yPos } from '../renderers/layout';
 import type { TitleStyle } from '../renderers/grid';
 import { computeTimeTicks, drawTimeAxis, resolveTimeFormatter } from '../renderers/grid';
 import type { GridStyle } from '../renderers/grid';
+import { ComparisonInspector, comparisonIndices } from './comparison';
+
+let nextControlsId = 0;
 
 /**
  * Default Finterion brand mark + wordmark used by the "Powered by" badge.
@@ -53,10 +57,28 @@ export class Chart {
   private panels: Panel[] = [];
   private buf: OHLCBuffer | null = null;
   private markers: TradeMarker[] = [];
+  private frame: HTMLDivElement;
+  private chartScrollContainer: HTMLDivElement;
+  private decisionInspector: DecisionInspector;
+  private decisions: DecisionAnnotation[] = [];
+  private decisionIndex = new DecisionIndex([], null);
+  private hiddenDecisionTypes = new Set<string>();
+  private chartControls: HTMLDivElement;
+  private showToolbarButton!: HTMLButtonElement;
+  private comparisonInspector: ComparisonInspector;
+  private compareButton!: HTMLButtonElement;
+  private comparing = false;
+  private comparisonTimes: number[] = [];
+  private timeAxisPanelId: string | null = null;
+  private timeAxisDialog!: HTMLDialogElement;
+  private timeAxisButton!: HTMLButtonElement;
+  private toolTooltip!: HTMLDivElement;
   private viewport: Viewport = { startIdx: 0, endIdx: 0 };
   private hoverIdx = -1;
   private hoverY = -1;
   private hoverPanel = -1;
+  private hoverDecision: (DecisionHit & { panel: number }) | null = null;
+  private selectedDecision: (DecisionHit & { panel: number }) | null = null;
   private dpr = 1;
   private dirty = { base: true, series: true, overlay: true };
   private rafQueued = false;
@@ -133,7 +155,8 @@ export class Chart {
 
     this.rightAxis = document.createElement('div');
     this.rightAxis.style.cssText = 'position:absolute;top:0;right:0;bottom:0;width:56px;z-index:11;cursor:ns-resize;';
-    this.rightAxis.title = 'Drag to zoom Y · double-click to reset';
+    this.rightAxis.title = 'Scroll or drag to zoom Y · double-click to reset';
+    this.eventSurface.title = 'Drag to pan · Shift + drag to box zoom · Escape to cancel';
 
     this.bottomAxis = document.createElement('div');
     this.bottomAxis.style.cssText = `position:relative;flex:0 0 ${Chart.TIME_AXIS_HEIGHT}px;cursor:ew-resize;`;
@@ -144,13 +167,35 @@ export class Chart {
     this.timeAxisCtx = this.timeAxisCanvas.getContext('2d')!;
     this.bottomAxis.appendChild(this.timeAxisCanvas);
 
-    container.appendChild(this.root);
+    this.frame = document.createElement('div');
+    this.frame.className = 'finterion-chart-frame';
+    this.frame.style.cssText = `position:relative;display:flex;flex-direction:row;width:100%;height:100%;min-height:0;overflow:hidden;background:${this.theme.bg};color:${this.theme.text};`;
+    this.root.style.flex = '1 1 0';
+    this.root.style.minWidth = '0';
+    this.chartScrollContainer = document.createElement('div');
+    this.chartScrollContainer.setAttribute('role', 'region');
+    this.chartScrollContainer.setAttribute('aria-label', 'Chart panels');
+    this.chartScrollContainer.tabIndex = 0;
+    this.chartScrollContainer.style.cssText = 'flex:1 1 0;min-width:0;min-height:0;overflow-y:auto;overscroll-behavior-y:contain;';
+    this.decisionInspector = new DecisionInspector(() => this.requestResize());
+    this.comparisonInspector = new ComparisonInspector();
+    container.appendChild(this.frame);
+    this.frame.append(this.chartScrollContainer, this.decisionInspector.container, this.comparisonInspector.el);
+    this.chartScrollContainer.appendChild(this.root);
     this.root.appendChild(this.chartCol);
     this.root.appendChild(this.legendSidebar);
+    this.chartControls = document.createElement('div');
+    this.chartControls.className = 'finterion-chart-tools';
+    this.chartControls.setAttribute('role', 'toolbar');
+    this.chartControls.setAttribute('aria-label', 'Chart display controls');
+    this.chartControls.setAttribute('aria-orientation', 'vertical');
+    this.chartControls.style.cssText = 'display:flex;flex-direction:column;flex:0 0 48px;box-sizing:border-box;gap:8px;padding:8px 5px;align-items:center;overflow-y:auto;border-right:1px solid;font-size:12px;';
+    this.frame.prepend(this.chartControls);
     this.chartCol.appendChild(this.panelsContainer);
     this.chartCol.appendChild(this.bottomAxis);
     this.panelsContainer.appendChild(this.eventSurface);
     this.panelsContainer.appendChild(this.rightAxis);
+    this.createChartControls();
 
     if (options.initialFit) this.initialFit = options.initialFit;
     if (options.initialZoom !== undefined) {
@@ -179,8 +224,10 @@ export class Chart {
     if (options.viewport) this.viewport = options.viewport;
     this.applyDisplayOptions(options);
     this.applyBranding(options.branding);
+    if (options.decisions) this.setDecisions(options.decisions);
     if (options.interactive === false) {
       this.interactive = false;
+      this.compareButton.disabled = true;
       this.eventSurface.style.cursor = 'default';
     }
     if (options.timeFormat !== undefined) {
@@ -192,8 +239,13 @@ export class Chart {
   }
 
   setData(buf: OHLCBuffer) {
+    this.hoverDecision = null;
     const wasFollowing = this.viewport.endIdx >= (this.buf?.length ?? 1) - 1;
     this.buf = buf;
+    const indices = comparisonIndices(buf, this.comparisonTimes);
+    this.comparisonTimes = this.comparisonTimes.filter((_, i) => indices[i] !== -1);
+    this.renderComparison();
+    this.refreshDecisionIndex(false);
     if (this.viewport.endIdx === 0 && this.viewport.startIdx === 0) {
       if (this.initialZoomX !== undefined && this.initialZoomX > 100) {
         // Zoom OUT past the data on X: extend viewport symmetrically beyond
@@ -236,6 +288,11 @@ export class Chart {
   }
 
   setPanels(panels: PanelSpec[]) {
+    if (this.timeAxisDialog?.open) this.timeAxisDialog.close();
+    this.hoverDecision = null;
+    const zoomStates = new Map(this.panels.map(panel => [
+      panel.spec.id, { kind: panel.spec.kind, scale: panel.yScale, range: panel.manualYRange },
+    ]));
     for (const p of this.panels) p.destroy();
     this.panels = panels.map((s, i) => {
       const panel = new Panel(s);
@@ -244,9 +301,15 @@ export class Chart {
       // panel re-mounts (React fires setPanels after setData on first
       // render, which would otherwise reset yScale back to 1).
       if (this.initialYScale !== null) panel.yScale = this.initialYScale;
+      const zoom = zoomStates.get(s.id);
+      if (zoom?.kind === s.kind && this.initialYScale === null) {
+        panel.yScale = zoom.scale;
+        panel.manualYRange = zoom.range;
+      }
       return panel;
     });
     for (const p of this.panels) this.panelsContainer.appendChild(p.el);
+    this.placeTimeAxis();
     // Move event surface + axes to top within panelsContainer.
     this.panelsContainer.appendChild(this.eventSurface);
     this.panelsContainer.appendChild(this.rightAxis);
@@ -256,6 +319,7 @@ export class Chart {
     this.applyTitleSpace();
     this.applyCollapsedFlex();
     this.applyTimeAxisVisibility();
+    this.renderComparison();
     this.markDirty('base', 'series', 'overlay');
     this.requestResize();
   }
@@ -302,7 +366,10 @@ export class Chart {
     if (this.legendPosition === 'overlay' || !this.panels.length) {
       // Overlay legends live ABOVE the event surface so toggle clicks land
       // on the buttons rather than starting a pan.
-      for (const p of this.panels) this.panelsContainer.appendChild(p.legendEl);
+      for (const p of this.panels) {
+        this.panelsContainer.appendChild(p.legendEl);
+        this.panelsContainer.appendChild(p.collapseEl);
+      }
       return;
     }
     this.legendSidebar.replaceChildren();
@@ -319,6 +386,9 @@ export class Chart {
           'font-size:10px;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;' +
           `color:${this.theme.textDim};margin:${i === 0 ? '0' : '8px'} 0 4px;`;
         section.appendChild(heading);
+        heading.appendChild(p.collapseEl);
+      } else {
+        section.appendChild(p.collapseEl);
       }
       section.appendChild(p.legendEl);
       this.legendSidebar.appendChild(section);
@@ -326,13 +396,20 @@ export class Chart {
   }
 
   /** Update display options (panel gap, title styling) at runtime. */
-  setDisplayOptions(options: Pick<ChartOptions, 'panelGap' | 'titleColor' | 'titlePadding' | 'titleFontSize' | 'titleSpace' | 'showTimeAxis' | 'gridStyle' | 'background' | 'gridColor' | 'showLegend' | 'legendPosition' | 'legendWidth' | 'legendMaxHeight' | 'onSeriesVisibilityChange' | 'onPaneCollapseChange'>) {
+  setDisplayOptions(options: Pick<ChartOptions, 'panelGap' | 'chartMinHeight' | 'titleColor' | 'titlePadding' | 'titleFontSize' | 'titleSpace' | 'showTimeAxis' | 'gridStyle' | 'background' | 'gridColor' | 'showLegend' | 'legendPosition' | 'legendWidth' | 'legendMaxHeight' | 'onSeriesVisibilityChange' | 'onPaneCollapseChange'>) {
     this.applyDisplayOptions(options);
+    this.renderComparison();
     this.markDirty('base');
     this.requestResize();
   }
 
   private applyDisplayOptions(options: ChartOptions) {
+    if (options.chartMinHeight !== undefined) {
+      if (!Number.isFinite(options.chartMinHeight) || options.chartMinHeight < 0) {
+        throw new Error('chartMinHeight must be a finite non-negative number');
+      }
+      this.root.style.minHeight = `${options.chartMinHeight}px`;
+    }
     if (options.panelGap !== undefined) this.panelGap = options.panelGap;
     if (options.titleSpace !== undefined) this.titleSpace = options.titleSpace;
     if (options.showTimeAxis !== undefined) this.showTimeAxis = options.showTimeAxis;
@@ -397,6 +474,8 @@ export class Chart {
       this.brandingRow.remove();
       this.brandingRow = null;
     }
+    this.root.style.paddingBottom = this.branding ? '20px' : '';
+    this.root.style.boxSizing = 'border-box';
     if (!this.branding) return;
 
     const cfg = this.branding;
@@ -407,16 +486,18 @@ export class Chart {
     const opacity = cfg.opacity ?? 1;
     const color = cfg.color ?? this.effectiveTheme.textDim;
 
-    // The badge lives in its own dedicated row below the time axis so it
-    // never overlaps chart data or axis labels. The `position` enum is
-    // collapsed to left/right alignment within that row (top-* values are
-    // treated as their bottom-* equivalents — the row is always at the
-    // bottom for visual consistency).
+    // Reserve space in root, but keep the badge outside its overflow clip so
+    // it sticks to the scroll viewport rather than the last panel.
     const alignRight = position === 'bottom-right' || position === 'top-right';
 
     const row = document.createElement('div');
     row.style.cssText = [
-      'position:relative',
+      'position:sticky',
+      'bottom:0',
+      'height:20px',
+      'box-sizing:border-box',
+      'margin-top:-20px',
+      `background:${this.effectiveTheme.bg}`,
       'z-index:20',
       'flex:0 0 20px',
       'display:flex',
@@ -460,7 +541,7 @@ export class Chart {
     row.appendChild(el);
     this.brandingEl = el;
     this.brandingRow = row;
-    this.chartCol.appendChild(row);
+    this.chartScrollContainer.appendChild(row);
   }
 
   private escapeHtml(s: string): string {
@@ -472,6 +553,7 @@ export class Chart {
   private makePanelHooks(panelIndex: number): PanelHooks {
     return {
       onLegendToggle: (panelId, seriesId, hidden) => {
+        this.renderComparison();
         this.onSeriesVisibilityChange?.(panelId, seriesId, hidden);
       },
       onCollapseToggle: (panelId, collapsed) => {
@@ -480,7 +562,7 @@ export class Chart {
         this.requestResize();
         this.onPaneCollapseChange?.(panelId, collapsed);
       },
-      canCollapse: () => panelIndex > 0,
+      canCollapse: () => this.panels[panelIndex]?.spec.collapsible ?? panelIndex > 0,
       requestRedraw: () => this.markDirty('base', 'series'),
     };
   }
@@ -509,6 +591,18 @@ export class Chart {
 
   private applyBackground() {
     this.root.style.background = this.background ?? this.theme.bg;
+    this.chartControls.style.background = this.effectiveTheme.bg;
+    this.chartControls.style.borderColor = this.effectiveTheme.border;
+    this.chartControls.style.color = this.effectiveTheme.textDim;
+    this.chartControls.style.setProperty('--finterion-tool-accent', this.effectiveTheme.accent);
+    this.showToolbarButton.style.background = this.effectiveTheme.surface;
+    this.showToolbarButton.style.color = this.effectiveTheme.text;
+    this.showToolbarButton.style.borderColor = this.effectiveTheme.border;
+    for (const element of [this.toolTooltip, this.timeAxisDialog]) {
+      element.style.background = this.effectiveTheme.surface;
+      element.style.color = this.effectiveTheme.text;
+      element.style.borderColor = this.effectiveTheme.border;
+    }
   }
 
   private applyPanelGap() {
@@ -529,6 +623,317 @@ export class Chart {
     this.eventSurface.style.right = hasTime ? '56px' : '0';
   }
 
+  private placeTimeAxis() {
+    const selected = this.panels.find(p => p.spec.id === this.timeAxisPanelId && isTimePanel(p.spec.kind));
+    if (selected) {
+      selected.el.after(this.bottomAxis);
+      this.bottomAxis.style.zIndex = '12';
+    } else {
+      this.timeAxisPanelId = null;
+      this.chartCol.appendChild(this.bottomAxis);
+      this.bottomAxis.style.zIndex = '';
+    }
+  }
+
+  private refreshDecisionIndex(updateInspector = true) {
+    const visible = this.decisions.filter(d => !this.hiddenDecisionTypes.has(decisionTypeKey(d)));
+    this.decisionIndex = new DecisionIndex(visible, this.buf);
+    this.selectedDecision = null;
+    this.hoverDecision = null;
+    this.hoverIdx = -1;
+    this.eventSurface.style.cursor = this.interactive ? 'crosshair' : 'default';
+    this.eventSurface.title = '';
+    if (updateInspector) this.decisionInspector.setDecisions(visible);
+    this.renderComparison();
+    this.markDirty('series', 'overlay');
+  }
+
+  private createChartControls() {
+    const style = document.createElement('style');
+    style.textContent = `
+      .finterion-chart-tools button {
+        display:flex;align-items:center;justify-content:center;flex:0 0 36px;width:36px;height:36px;
+        padding:0;border:1px solid transparent;border-radius:6px;background:transparent;color:inherit;cursor:pointer;
+      }
+      .finterion-chart-tools button:hover:not(:disabled) { background:rgba(128,128,128,.14); }
+      .finterion-chart-tools button[aria-pressed="true"] {
+        color:var(--finterion-tool-accent);border-color:currentColor;background:rgba(128,128,128,.14);
+      }
+      .finterion-chart-tools button:focus-visible { outline:2px solid var(--finterion-tool-accent);outline-offset:1px; }
+      .finterion-chart-toolbar-show:focus-visible { outline:2px solid currentColor;outline-offset:-2px; }
+      .finterion-chart-tools button:disabled { opacity:.35;cursor:default; }
+      .finterion-chart-axis-dialog { border:1px solid;border-radius:10px;padding:18px;box-sizing:border-box;overflow:auto; }
+      .finterion-chart-axis-dialog::backdrop { background:rgba(0,0,0,.25); }
+      .finterion-chart-axis-dialog label { display:flex;gap:10px;align-items:center;padding:8px 0;cursor:pointer;overflow-wrap:anywhere; }
+      .finterion-chart-axis-dialog button { padding:7px 12px;border:1px solid currentColor;border-radius:5px;background:transparent;color:inherit;cursor:pointer; }
+      .finterion-chart-axis-dialog :focus-visible { outline:2px solid currentColor;outline-offset:2px; }
+    `;
+    this.frame.appendChild(style);
+    const controlsId = ++nextControlsId;
+    this.toolTooltip = document.createElement('div');
+    this.toolTooltip.id = `finterion-tool-tooltip-${controlsId}`;
+    this.toolTooltip.setAttribute('role', 'tooltip');
+    this.toolTooltip.style.cssText = 'display:none;position:absolute;z-index:50;pointer-events:none;max-width:260px;padding:8px 10px;border:1px solid;border-radius:6px;box-shadow:0 4px 14px #0004;font:12px/1.5 system-ui;box-sizing:border-box;';
+    this.frame.appendChild(this.toolTooltip);
+    const describeTool = (button: HTMLButtonElement, description: string) => {
+      button.setAttribute('aria-description', description);
+      const hide = () => {
+        this.toolTooltip.style.display = 'none';
+        button.removeAttribute('aria-describedby');
+      };
+      const show = () => {
+        if (button.disabled || this.timeAxisDialog?.open) return;
+        const bounds = button.getBoundingClientRect();
+        const frame = this.frame.getBoundingClientRect();
+        this.toolTooltip.textContent = description;
+        this.toolTooltip.style.left = `${bounds.right - frame.left + 8}px`;
+        this.toolTooltip.style.top = `${Math.max(4, Math.min(bounds.top - frame.top, frame.height - 70))}px`;
+        this.toolTooltip.style.maxWidth = `${Math.max(0, Math.min(260, frame.right - bounds.right - 16))}px`;
+        this.toolTooltip.style.display = 'block';
+        button.setAttribute('aria-describedby', this.toolTooltip.id);
+      };
+      button.addEventListener('pointerenter', show);
+      button.addEventListener('focus', show);
+      button.addEventListener('pointerleave', hide);
+      button.addEventListener('blur', hide);
+      button.addEventListener('click', hide);
+      button.addEventListener('keydown', e => { if (e.key === 'Escape') hide(); });
+    };
+    const tool = (label: string, icon: string, description: string) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.setAttribute('aria-label', label);
+      button.setAttribute('aria-pressed', 'false');
+      describeTool(button, description);
+      button.innerHTML = `<svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${icon}</svg>`;
+      this.chartControls.appendChild(button);
+      return button;
+    };
+    const timeAxisButton = this.timeAxisButton = tool('X axis placement',
+      '<path d="M3 3v18h18M3 14h18M7 14v3m5-3v3m5-3v3"/><path d="m6 10 4-4 4 3 5-4"/>',
+      'Choose which panel displays the shared X axis. Drag that axis to zoom time; double-click to reset.');
+    timeAxisButton.removeAttribute('aria-pressed');
+    timeAxisButton.setAttribute('aria-haspopup', 'dialog');
+    timeAxisButton.setAttribute('aria-expanded', 'false');
+    this.timeAxisDialog = document.createElement('dialog');
+    this.timeAxisDialog.id = `finterion-time-axis-${controlsId}`;
+    this.timeAxisDialog.className = 'finterion-chart-axis-dialog';
+    this.timeAxisDialog.setAttribute('aria-label', 'X axis placement');
+    this.timeAxisDialog.setAttribute('aria-modal', 'true');
+    timeAxisButton.setAttribute('aria-controls', this.timeAxisDialog.id);
+    this.frame.appendChild(this.timeAxisDialog);
+    timeAxisButton.addEventListener('click', () => this.openTimeAxisDialog());
+    this.timeAxisDialog.addEventListener('close', () => {
+      timeAxisButton.setAttribute('aria-expanded', 'false');
+      timeAxisButton.focus();
+    });
+    this.timeAxisDialog.addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        this.timeAxisDialog.close();
+      }
+    });
+    this.timeAxisDialog.addEventListener('click', e => {
+      if (e.target !== this.timeAxisDialog) return;
+      const bounds = this.timeAxisDialog.getBoundingClientRect();
+      if (e.clientX < bounds.left || e.clientX > bounds.right || e.clientY < bounds.top || e.clientY > bounds.bottom) {
+        this.timeAxisDialog.close();
+      }
+    });
+    this.compareButton = tool('Compare points',
+      '<path d="M6 3v3m0 4v4m0 4v3M18 3v7m0 4v7M9 8h6m-6 8h6"/><circle cx="6" cy="8" r="2"/><circle cx="18" cy="12" r="2"/>',
+      'Select timestamps and compare values across panels');
+    this.compareButton.addEventListener('click', () => this.setComparing(!this.comparing));
+    const hideButton = tool('Hide toolbar', '<path d="m14 6-6 6 6 6"/>', 'Hide the chart tools');
+    hideButton.removeAttribute('aria-pressed');
+    hideButton.setAttribute('aria-expanded', 'true');
+    hideButton.style.marginTop = 'auto';
+    this.showToolbarButton = document.createElement('button');
+    this.showToolbarButton.type = 'button';
+    this.showToolbarButton.className = 'finterion-chart-toolbar-show';
+    this.showToolbarButton.setAttribute('aria-label', 'Show toolbar');
+    this.showToolbarButton.setAttribute('aria-expanded', 'true');
+    describeTool(this.showToolbarButton, 'Show the chart tools without changing your active tools or selected timestamps.');
+    this.showToolbarButton.innerHTML = '<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>';
+    this.showToolbarButton.style.cssText = 'display:none;position:absolute;left:0;top:8px;z-index:40;align-items:center;justify-content:center;width:24px;height:36px;padding:0;border:1px solid;border-radius:0 5px 5px 0;cursor:pointer;';
+    this.frame.appendChild(this.showToolbarButton);
+    const setToolbarHidden = (hidden: boolean) => {
+      this.chartControls.style.display = hidden ? 'none' : 'flex';
+      this.showToolbarButton.style.display = hidden ? 'flex' : 'none';
+      hideButton.setAttribute('aria-expanded', String(!hidden));
+      this.showToolbarButton.setAttribute('aria-expanded', String(!hidden));
+      (hidden ? this.showToolbarButton : timeAxisButton).focus();
+      this.requestResize();
+    };
+    hideButton.addEventListener('click', () => setToolbarHidden(true));
+    this.showToolbarButton.addEventListener('click', () => setToolbarHidden(false));
+    this.chartControls.addEventListener('keydown', e => {
+      if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+      const buttons = Array.from(this.chartControls.querySelectorAll('button')).filter(button => !button.disabled);
+      if (!buttons.length) return;
+      e.preventDefault();
+      const index = buttons.findIndex(button => button === document.activeElement);
+      const next = e.key === 'Home' ? 0 : e.key === 'End' ? buttons.length - 1
+        : (index + (e.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
+      buttons[next]!.focus();
+    });
+  }
+
+  private openTimeAxisDialog() {
+    const dialog = this.timeAxisDialog;
+    if (dialog.open) return;
+    dialog.replaceChildren();
+    const heading = document.createElement('h3');
+    heading.textContent = 'Show X axis';
+    heading.style.margin = '0 0 8px';
+    const description = document.createElement('p');
+    description.textContent = 'Choose where to display the shared time axis. All time-based panels remain synchronized.';
+    description.style.cssText = 'margin:0 0 12px;font-size:12px;line-height:1.5;';
+    description.id = `${dialog.id}-description`;
+    dialog.setAttribute('aria-describedby', description.id);
+    const choices = document.createElement('div');
+    choices.setAttribute('role', 'radiogroup');
+    choices.setAttribute('aria-label', 'Time axis location');
+    let selected = this.timeAxisPanelId;
+    const choice = (panelId: string | null, title: string) => {
+      const label = document.createElement('label');
+      const input = document.createElement('input');
+      input.type = 'radio';
+      input.name = dialog.id;
+      input.checked = panelId === selected;
+      input.addEventListener('change', () => { if (input.checked) selected = panelId; });
+      const text = document.createElement('span');
+      text.textContent = title;
+      label.append(input, text);
+      choices.appendChild(label);
+    };
+    choice(null, 'Bottom of chart');
+    for (const panel of this.panels) {
+      if (isTimePanel(panel.spec.kind)) choice(panel.spec.id, `Below ${panel.spec.title ?? panel.spec.id}`);
+    }
+    const actions = document.createElement('div');
+    actions.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;margin-top:16px;';
+    for (const label of ['Cancel', 'Apply']) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = label;
+      button.addEventListener('click', () => {
+        if (label === 'Apply') {
+          this.timeAxisPanelId = selected;
+          this.showTimeAxis = true;
+          this.placeTimeAxis();
+          this.applyTimeAxisVisibility();
+          this.requestResize();
+        }
+        dialog.close();
+      });
+      actions.appendChild(button);
+    }
+    dialog.append(heading, description, choices, actions);
+    const bounds = this.timeAxisButton.getBoundingClientRect();
+    const width = Math.min(340, window.innerWidth - 16);
+    Object.assign(dialog.style, {
+      position: 'fixed', margin: '0', width: `${width}px`, maxHeight: 'calc(100vh - 16px)',
+      left: `${Math.max(8, Math.min(bounds.right + 8, window.innerWidth - width - 8))}px`,
+      top: `${Math.max(8, Math.min(bounds.top, window.innerHeight - 440))}px`,
+    });
+    this.toolTooltip.style.display = 'none';
+    dialog.showModal();
+    this.timeAxisButton.setAttribute('aria-expanded', 'true');
+  }
+
+  private setComparing(active: boolean) {
+    this.comparing = active;
+    this.compareButton.setAttribute('aria-pressed', String(active));
+    this.hoverDecision = null;
+    this.selectedDecision = null;
+    this.eventSurface.title = '';
+    this.comparisonInspector.el.style.display = active ? 'flex' : 'none';
+    this.decisionInspector.container.style.display = !active && this.decisions.length ? 'flex' : 'none';
+    this.renderComparison();
+    this.requestResize();
+  }
+
+  private renderComparison() {
+    if (!this.comparing) return;
+    this.decisionInspector.container.style.display = 'none';
+    this.comparisonInspector.render({
+      times: this.comparisonTimes, buf: this.buf, panels: this.panels.map(p => p.spec),
+      theme: this.effectiveTheme, formatTime: this.timeFormatter,
+      remove: time => {
+        this.comparisonTimes = this.comparisonTimes.filter(t => t !== time);
+        this.renderComparison();
+        this.markDirty('overlay');
+      },
+      clear: () => {
+        this.comparisonTimes = [];
+        this.renderComparison();
+        this.markDirty('overlay');
+      },
+      close: () => this.setComparing(false),
+    });
+  }
+
+  private toggleComparisonPoint(e: Pick<MouseEvent, 'clientX' | 'clientY'>) {
+    if (!this.buf?.length) return;
+    const panel = this.panels.find(p => {
+      const rect = p.el.getBoundingClientRect();
+      return !p.collapsed && isTimePanel(p.spec.kind)
+        && e.clientY >= rect.top + p.headerHeight && e.clientY < rect.bottom;
+    });
+    if (!panel) return;
+    const rect = panel.el.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const index = Math.floor(this.viewport.startIdx
+      + (e.clientX - rect.left) / rect.width * (this.viewport.endIdx - this.viewport.startIdx + 1));
+    if (index < 0 || index >= this.buf.length) return;
+    const time = this.buf.time[index]!;
+    if (this.comparisonTimes.includes(time)) this.comparisonTimes = this.comparisonTimes.filter(t => t !== time);
+    else this.comparisonTimes.push(time);
+    this.renderComparison();
+    this.markDirty('overlay');
+  }
+
+  private syncDecisionLegend() {
+    const main = this.panels[0];
+    if (!main) return;
+    const extraTypes = new Map<string, DecisionAnnotation>();
+    for (const d of this.decisions) {
+      if (d.action !== 'none' && d.signalType) extraTypes.set(decisionTypeKey(d), d);
+    }
+    const controls: Panel['legendControls'] = ([
+      ['entry', 'long', 'Long entries'], ['exit', 'long', 'Long exits'],
+      ['entry', 'short', 'Short entries'], ['exit', 'short', 'Short exits'],
+      ['none', 'long', 'Undecided'],
+    ] as const).map(([action, direction, label]) => {
+      const key = action === 'none' ? 'none' : `${action}:${direction}`;
+      return {
+        id: `decision:${key}`, label, color: decisionColor(action, direction),
+        hidden: this.hiddenDecisionTypes.has(key),
+        onToggle: () => {
+          if (this.hiddenDecisionTypes.has(key)) this.hiddenDecisionTypes.delete(key);
+          else this.hiddenDecisionTypes.add(key);
+          this.refreshDecisionIndex();
+          this.markDirty('base');
+        },
+      };
+    });
+    for (const [key, d] of extraTypes) {
+      controls.push({
+        id: `decision:${key}`, label: decisionTypeLabel(d),
+        color: decisionColor(d.action, d.direction, undefined, d.signalType),
+        hidden: this.hiddenDecisionTypes.has(key),
+        onToggle: () => {
+          if (this.hiddenDecisionTypes.has(key)) this.hiddenDecisionTypes.delete(key);
+          else this.hiddenDecisionTypes.add(key);
+          this.refreshDecisionIndex();
+          this.markDirty('base');
+        },
+      });
+    }
+    main.legendControls = this.decisions.length ? controls : [];
+  }
+
   private hasTimePanel(): boolean {
     return this.panels.some((p) => isTimePanel(p.spec.kind));
   }
@@ -537,6 +942,7 @@ export class Chart {
     const p = this.panels.find((x) => x.spec.id === id);
     if (!p) return;
     p.spec = { ...p.spec, ...partial };
+    this.renderComparison();
     this.markDirty('series', 'base');
   }
 
@@ -545,16 +951,31 @@ export class Chart {
     this.markDirty('series');
   }
 
+  setDecisions(decisions: DecisionAnnotation[]) {
+    const errors = validateDecisions(decisions, this.panels.map(p => p.spec));
+    if (errors.length) throw new Error(errors.join('\n'));
+    this.decisions = decisions;
+    this.hoverDecision = null;
+    this.eventSurface.style.cursor = this.interactive ? 'crosshair' : 'default';
+    this.refreshDecisionIndex();
+    this.requestResize();
+    this.markDirty('series');
+  }
+
   setTheme(theme: ChartOptions['theme']) {
     this.theme = resolveTheme(theme);
     this.recomputeEffectiveTheme();
     this.applyBackground();
     this.root.style.color = this.theme.text;
+    this.frame.style.background = this.theme.bg;
+    this.frame.style.color = this.theme.text;
+    this.renderComparison();
     if (this.branding) this.applyBranding(this.branding);
     this.markDirty('base', 'series', 'overlay');
   }
 
   setViewport(vp: Viewport) {
+    this.hoverDecision = null;
     this.viewport = vp;
     this.markDirty('base', 'series', 'overlay');
   }
@@ -570,6 +991,7 @@ export class Chart {
    */
   setTimeFormat(fmt: ChartOptions['timeFormat']) {
     this.timeFormatter = fmt === undefined ? undefined : resolveTimeFormatter(fmt);
+    this.renderComparison();
     this.markDirty('base', 'overlay');
   }
 
@@ -577,7 +999,7 @@ export class Chart {
     this.detachPanZoom?.();
     this.resizeObserver?.disconnect();
     for (const p of this.panels) p.destroy();
-    this.root.remove();
+    this.frame.remove();
   }
 
   // ---- internals ----
@@ -588,23 +1010,99 @@ export class Chart {
         getDataLength: () => this.buf?.length ?? 0,
         getViewport: () => this.viewport,
         setViewport: (vp) => this.setViewport(vp),
-        getWidth: () => this.eventSurface.getBoundingClientRect().width,
+        getWidth: () => this.panelsContainer.getBoundingClientRect().width,
+        requireZoomModifier: () => this.chartScrollContainer.scrollHeight > this.chartScrollContainer.clientHeight,
+        wheelTarget: this.chartScrollContainer,
+        canStartPan: e => !this.comparing && !this.findDecisionHit(e),
+        getBoxZoomRegion: e => {
+          if (this.comparing) return null;
+          const panel = this.panelAtPoint(e);
+          if (!panel) return null;
+          const rect = panel.el.getBoundingClientRect();
+          const top = rect.top + panel.headerHeight;
+          const height = panel.height - panel.headerHeight;
+          const yMin = panel.yMin;
+          const yMax = panel.yMax;
+          return {
+            left: rect.left, top, width: rect.width - 56, height,
+            onZoom: selection => {
+              const span = yMax - yMin;
+              panel.manualYRange = [
+                yMax - (selection.top + selection.height) / height * span,
+                yMax - selection.top / height * span,
+              ];
+              panel.yScale = 1;
+              this.initialYScale = null;
+            },
+          };
+        },
       });
     }
 
     this.eventSurface.addEventListener('pointermove', (e) => this.onMove(e));
+    this.eventSurface.addEventListener('pointerup', (e) => this.onMove(e));
+    let down: { x: number; y: number } | null = null;
+    let dragged = false;
+    this.eventSurface.addEventListener('pointerdown', e => {
+      down = { x: e.clientX, y: e.clientY };
+      dragged = e.shiftKey && this.interactive;
+    });
+    this.eventSurface.addEventListener('pointermove', e => {
+      if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) dragged = true;
+    });
+    this.eventSurface.addEventListener('pointercancel', () => {
+      down = null;
+      dragged = true;
+      this.hoverDecision = null;
+      this.eventSurface.style.cursor = this.interactive ? 'crosshair' : 'default';
+      this.markDirty('overlay');
+    });
+    this.eventSurface.addEventListener('click', e => {
+      if (!down || dragged) return;
+      down = null;
+      if (this.comparing) {
+        this.toggleComparisonPoint(e);
+        return;
+      }
+      this.onMove(e as PointerEvent);
+      if (this.hoverDecision) {
+        this.selectedDecision = this.hoverDecision;
+        this.decisionInspector.select(
+          this.decisionIndex.nearest(this.hoverDecision.bar),
+          this.hoverDecision.decision,
+        );
+      } else {
+        this.selectedDecision = null;
+        this.decisionInspector.clearSelection();
+      }
+      this.markDirty('overlay');
+    });
     this.eventSurface.addEventListener('pointerleave', () => {
       this.hoverIdx = -1;
       this.hoverY = -1;
       this.hoverPanel = -1;
+      this.hoverDecision = null;
+      this.eventSurface.style.cursor = this.interactive ? 'crosshair' : 'default';
       this.markDirty('overlay');
     });
 
     if (this.interactive) {
       this.attachAxisDrag(this.rightAxis, 'y');
       this.attachAxisDrag(this.bottomAxis, 'x');
+      this.rightAxis.addEventListener('wheel', e => {
+        const panel = this.panelAtPoint(e, true);
+        if (!panel || !e.deltaY) return;
+        e.preventDefault();
+        e.stopPropagation();
+        panel.yScale = Math.max(0.05, Math.min(20, panel.yScale * (e.deltaY < 0 ? 0.85 : 1.18)));
+        this.initialYScale = null;
+        this.markDirty('base', 'series', 'overlay');
+      }, { passive: false });
       this.rightAxis.addEventListener('dblclick', () => {
-        for (const p of this.panels) p.yScale = 1;
+        for (const p of this.panels) {
+          p.yScale = 1;
+          p.manualYRange = null;
+        }
         // User explicitly reset the Y-axis — forget the initial padding
         // factor so subsequent panel re-mounts don't re-inflate the range.
         this.initialYScale = null;
@@ -617,6 +1115,21 @@ export class Chart {
         this.setViewport({ startIdx: Math.max(0, n - 1 - span), endIdx: n - 1 });
       });
     }
+  }
+
+  private panelAtPoint(e: Pick<PointerEvent, 'clientX' | 'clientY'>, axis = false): Panel | null {
+    for (const panel of this.panels) {
+      if (panel.collapsed || !isTimePanel(panel.spec.kind)) continue;
+      const rect = panel.el.getBoundingClientRect();
+      const left = axis ? rect.right - 56 : rect.left;
+      const right = axis ? rect.right : rect.right - 56;
+      if (e.clientX >= left && e.clientX <= right
+          && e.clientY >= rect.top + panel.headerHeight && e.clientY <= rect.bottom
+          && panel.height > panel.headerHeight && panel.width > 56
+          && Number.isFinite(panel.yMin) && Number.isFinite(panel.yMax)
+          && panel.yMax > panel.yMin) return panel;
+    }
+    return null;
   }
 
   private attachAxisDrag(target: HTMLElement, axis: 'x' | 'y') {
@@ -639,12 +1152,11 @@ export class Chart {
         const rect = target.getBoundingClientRect();
         const y = e.clientY - rect.top;
         // Find which panel this y falls in.
-        let acc = 0;
         panelIdx = 0;
         for (let i = 0; i < this.panels.length; i++) {
           const h = this.panels[i]!.height;
+          const acc = this.panelTop(i);
           if (y >= acc && y <= acc + h) { panelIdx = i; break; }
-          acc += h;
         }
         startScale = this.panels[panelIdx]?.yScale ?? 1;
       }
@@ -684,9 +1196,25 @@ export class Chart {
     target.addEventListener('pointercancel', onUp);
   }
 
+  private findDecisionHit(e: Pick<PointerEvent, 'clientX' | 'clientY'>): (DecisionHit & { panel: number }) | null {
+    if (!this.buf || !this.decisions?.length) return null;
+    for (let i = 0; i < this.panels.length; i++) {
+      const p = this.panels[i]!;
+      if (p.collapsed || !isTimePanel(p.spec.kind)) continue;
+      const rect = p.el.getBoundingClientRect();
+      const hit = this.decisionIndex.hitTest({
+        width: p.width, height: Math.max(1, p.height - p.headerHeight),
+        viewport: this.viewport, yMin: p.yMin, yMax: p.yMax,
+      }, p.spec.id, e.clientX - rect.left, e.clientY - rect.top - p.headerHeight);
+      if (hit) return { ...hit, panel: i };
+    }
+    return null;
+  }
+
   private onMove(e: PointerEvent) {
     if (!this.buf) return;
-    const rect = this.eventSurface.getBoundingClientRect();
+    // The event surface excludes the right axis; bar positions use the full canvas.
+    const rect = this.panelsContainer.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     const span = this.viewport.endIdx - this.viewport.startIdx + 1;
@@ -695,12 +1223,28 @@ export class Chart {
     this.hoverIdx = Math.max(0, Math.min(this.buf.length - 1, idx));
     this.hoverY = y;
 
-    let acc = 0;
     this.hoverPanel = 0;
     for (let i = 0; i < this.panels.length; i++) {
       const h = this.panels[i]!.height;
+      const acc = this.panelTop(i);
       if (y >= acc && y <= acc + h) { this.hoverPanel = i; break; }
-      acc += h;
+    }
+    this.hoverDecision = e.buttons || this.comparing ? null : this.findDecisionHit(e);
+    if (this.hoverDecision) {
+      const { bar, decision, panel } = this.hoverDecision;
+      const p = this.panels[panel]!;
+      this.hoverIdx = bar;
+      this.hoverPanel = panel;
+      this.hoverY = this.panelTop(panel) + p.headerHeight
+        + yPos(decision.value, p.yMin, p.yMax, Math.max(1, p.height - p.headerHeight));
+    }
+    if (!e.buttons) {
+      this.eventSurface.style.cursor = this.hoverDecision ? 'pointer' : this.interactive ? 'crosshair' : 'default';
+    }
+    if (!this.comparing && this.decisions?.length && this.hoverIdx >= 0) {
+      const bucket = this.decisionIndex.nearest(this.hoverIdx);
+      this.decisionInspector.show(bucket);
+      this.eventSurface.title = bucket.map(d => `${d.action}: ${d.card.title} · ${d.card.status}`).join('\n');
     }
     this.markDirty('overlay');
   }
@@ -751,6 +1295,7 @@ export class Chart {
       const external = this.legendPosition !== 'overlay';
       const placement = external ? 'external' : 'overlay';
       for (const p of this.panels) {
+        if (p === this.panels[0]) this.syncDecisionLegend();
         p.drawBase(this.effectiveTheme, this.viewport, this.titleStyle, this.gridStyle, verticalXs, external);
         p.syncLegend(this.effectiveTheme, this.legendMode, this.titleStyle, placement);
       }
@@ -764,6 +1309,16 @@ export class Chart {
           continue;
         }
         p.drawSeries(this.effectiveTheme, this.viewport, this.buf, this.markers);
+        if (this.buf && isTimePanel(p.spec.kind) && this.decisions.length) {
+          const ctx = p.seriesCtx;
+          ctx.save();
+          ctx.translate(0, p.headerHeight);
+          renderDecisions({
+            ctx, width: p.width, height: Math.max(1, p.height - p.headerHeight),
+            viewport: this.viewport, yMin: p.yMin, yMax: p.yMax, theme: this.effectiveTheme,
+          }, this.decisionIndex, p.spec.id);
+          ctx.restore();
+        }
       }
     }
     if (this.dirty.overlay || this.dirty.series) {
@@ -774,8 +1329,45 @@ export class Chart {
           continue;
         }
         const cross = { idx: this.hoverIdx, y: this.hoverPanel === i ? this.hoverY - this.panelTop(i) : -1 };
-        const tooltip = i === 0 && this.hoverIdx >= 0 ? this.buildTooltip() : null;
-        p.drawOverlay(this.effectiveTheme, this.viewport, cross, tooltip);
+        p.drawOverlay(this.effectiveTheme, this.viewport, cross);
+        if (this.comparing && isTimePanel(p.spec.kind) && this.comparisonTimes.length) {
+          const ctx = p.overlayCtx;
+          ctx.save();
+          ctx.strokeStyle = this.effectiveTheme.accent;
+          ctx.fillStyle = this.effectiveTheme.accent;
+          ctx.lineWidth = 1;
+          ctx.font = '11px ui-monospace, monospace';
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'top';
+          ctx.setLineDash([4, 3]);
+          comparisonIndices(this.buf, this.comparisonTimes).forEach((bar, point) => {
+            if (bar < 0 || bar < this.viewport.startIdx || bar > this.viewport.endIdx) return;
+            const x = xCenter(bar, this.viewport, p.width);
+            ctx.beginPath();
+            ctx.moveTo(x, p.headerHeight);
+            ctx.lineTo(x, p.height);
+            ctx.stroke();
+            ctx.fillText(`P${point + 1}`, x + 4, p.headerHeight + 4);
+          });
+          ctx.restore();
+        }
+        p.drawHoverValues(this.effectiveTheme, this.hoverIdx, this.titleStyle, this.legendPosition !== 'overlay');
+        const hit = this.selectedDecision ?? this.hoverDecision;
+        if (hit?.panel === i && hit.bar >= this.viewport.startIdx && hit.bar <= this.viewport.endIdx) {
+          const ctx = p.overlayCtx;
+          const height = Math.max(1, p.height - p.headerHeight);
+          ctx.save();
+          ctx.translate(0, p.headerHeight);
+          ctx.beginPath();
+          ctx.rect(0, 0, p.width, height);
+          ctx.clip();
+          ctx.beginPath();
+          ctx.arc(decisionX(hit.bar, this.viewport, p.width, hit.decision), yPos(hit.decision.value, p.yMin, p.yMax, height), 7, 0, Math.PI * 2);
+          ctx.strokeStyle = decisionColor(hit.decision.action, hit.decision.direction, hit.decision.card.status, hit.decision.signalType);
+          ctx.lineWidth = 2;
+          ctx.stroke();
+          ctx.restore();
+        }
       }
     }
     this.dirty = { base: false, series: false, overlay: false };
@@ -831,29 +1423,10 @@ export class Chart {
   }
 
   private panelTop(idx: number): number {
-    let acc = 0;
-    for (let i = 0; i < idx; i++) acc += this.panels[i]!.height;
-    return acc;
+    return this.panels[idx]!.el.getBoundingClientRect().top
+      - this.panelsContainer.getBoundingClientRect().top;
   }
 
-  private buildTooltip(): string[] {
-    if (!this.buf || this.hoverIdx < 0) return [];
-    const i = this.hoverIdx;
-    const rawTime = this.buf.time[i]!;
-    // Honor the user's `timeFormat` when present so `timeFormat: 'duration'`
-    // and other overrides drive the tooltip's first line too (otherwise a
-    // duration-axis chart would show a nonsensical epoch-based ISO date).
-    const timeLabel = this.timeFormatter
-      ? this.timeFormatter(rawTime)
-      : new Date(rawTime).toISOString().replace('T', ' ').slice(0, 16);
-    const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
-    const lines = [
-      timeLabel,
-      `O ${fmt(this.buf.open[i]!)}   H ${fmt(this.buf.high[i]!)}`,
-      `L ${fmt(this.buf.low[i]!)}   C ${fmt(this.buf.close[i]!)}`,
-    ];
-    return lines;
-  }
 }
 
 export function createChart(container: HTMLElement, options?: ChartOptions): Chart {

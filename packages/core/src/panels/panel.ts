@@ -1,10 +1,10 @@
 import type { IndicatorSeries, OHLCBuffer, PanelKind, PanelSpec, ThemeTokens, TradeMarker, Viewport } from '../types';
 import type { CrosshairState } from '../renderers/crosshair';
-import { drawCrosshair, drawTooltip } from '../renderers/crosshair';
+import { drawCrosshair } from '../renderers/crosshair';
 import { drawGrid, drawTitle, type GridStyle, type TitleStyle } from '../renderers/grid';
 import { renderPrice, priceExtrema } from '../renderers/price';
 import { renderIndicator, indicatorExtrema } from '../renderers/indicator';
-import { renderMarkers } from '../renderers/markers';
+import { markersForPanel, renderMarkers } from '../renderers/markers';
 import { renderHeatmap } from '../renderers/heatmap';
 import { renderHBar } from '../renderers/hbar';
 import { renderVBar } from '../renderers/vbar';
@@ -38,6 +38,7 @@ export class Panel {
   series: HTMLCanvasElement;
   overlay: HTMLCanvasElement;
   legendEl: HTMLDivElement;
+  collapseEl: HTMLDivElement;
   baseCtx: CanvasRenderingContext2D;
   seriesCtx: CanvasRenderingContext2D;
   overlayCtx: CanvasRenderingContext2D;
@@ -49,10 +50,14 @@ export class Panel {
   headerHeight = 0;
   /** User-applied Y zoom factor (1 = autoscale, >1 = compressed/zoomed-out, <1 = expanded). */
   yScale = 1;
+  manualYRange: [number, number] | null = null;
   /** True when collapsed via the title toggle — chart will skip rendering data. */
   collapsed = false;
   /** Provided by the parent chart so legend toggles can notify the host and request redraws. */
   hooks: PanelHooks = {};
+  legendControls: {
+    id: string; label: string; color: string; hidden: boolean; onToggle: () => void;
+  }[] = [];
 
   constructor(spec: PanelSpec) {
     this.spec = spec;
@@ -66,6 +71,7 @@ export class Panel {
     // pan/zoom event surface in z-order. The chart attaches it to
     // panelsContainer in setPanels().
     this.legendEl = mkLegend();
+    this.collapseEl = mkLegend();
     this.el.appendChild(this.base);
     this.el.appendChild(this.series);
     this.el.appendChild(this.overlay);
@@ -95,7 +101,9 @@ export class Panel {
   }
 
   computeRange(buf: OHLCBuffer | null, viewport: Viewport) {
-    if (this.spec.kind === 'price' && buf) {
+    if (this.manualYRange) {
+      [this.yMin, this.yMax] = this.manualYRange;
+    } else if (this.spec.kind === 'price' && buf) {
       const [lo, hi] = priceExtrema(buf, viewport.startIdx, viewport.endIdx);
       [this.yMin, this.yMax] = pad(lo, hi, 0.05);
     } else if (this.spec.kind === 'indicator' && this.spec.indicator) {
@@ -138,7 +146,7 @@ export class Panel {
     }
     // Time-based panels share the chart-wide grid; non-time panels draw their
     // own axes inside their renderer.
-    if (!isTimePanel(this.spec.kind)) return;
+    if (this.collapsed || !isTimePanel(this.spec.kind)) return;
     const dataHeight = Math.max(1, this.height - this.headerHeight);
     ctx.save();
     ctx.translate(0, this.headerHeight);
@@ -157,11 +165,12 @@ export class Panel {
       const layout: PanelLayout = { ctx, width: this.width, height: dataHeight, viewport, yMin: this.yMin, yMax: this.yMax, theme };
       renderPrice(layout, buf, this.spec.type ?? 'candles');
       if (this.spec.overlays) for (const o of this.spec.overlays) if (!o.hidden) renderIndicator(layout, o);
-      if (markers.length) renderMarkers(layout, buf, markers);
+      if (markers.length) renderMarkers(layout, buf, markersForPanel(markers, this.spec));
     } else if (this.spec.kind === 'indicator' && this.spec.indicator) {
       const layout: PanelLayout = { ctx, width: this.width, height: dataHeight, viewport, yMin: this.yMin, yMax: this.yMax, theme };
       if (!this.spec.indicator.hidden) renderIndicator(layout, this.spec.indicator);
       if (this.spec.overlays) for (const o of this.spec.overlays) if (!o.hidden) renderIndicator(layout, o);
+      if (buf && markers.length) renderMarkers(layout, buf, markersForPanel(markers, this.spec));
     } else if (this.spec.kind === 'heatmap' && this.spec.heatmap) {
       renderHeatmap(ctx, this.width, dataHeight, this.spec.heatmap, theme);
     } else if (this.spec.kind === 'hbar' && this.spec.hbar) {
@@ -176,7 +185,7 @@ export class Panel {
     ctx.restore();
   }
 
-  drawOverlay(theme: ThemeTokens, viewport: Viewport, cross: CrosshairState, tooltip: string[] | null) {
+  drawOverlay(theme: ThemeTokens, viewport: Viewport, cross: CrosshairState) {
     const ctx = this.overlayCtx;
     ctx.clearRect(0, 0, this.width, this.height);
     if (!isTimePanel(this.spec.kind)) return;
@@ -184,9 +193,59 @@ export class Panel {
     const adjusted = { idx: cross.idx, y: cross.y >= 0 ? cross.y - this.headerHeight : -1 };
     ctx.save();
     ctx.translate(0, this.headerHeight);
-    drawCrosshair(ctx, this.width, dataHeight, viewport, theme, adjusted, tooltip != null);
+    drawCrosshair(ctx, this.width, dataHeight, viewport, theme, adjusted, cross.y >= 0);
     ctx.restore();
-    if (tooltip) drawTooltip(ctx, this.width, theme, tooltip);
+  }
+
+  drawHoverValues(
+    theme: ThemeTokens, index: number, titleStyle: TitleStyle = {},
+    externalLegend = false,
+  ) {
+    if (this.collapsed || this.spec.kind !== 'indicator' || index < 0) return;
+    const series = collectLegendSeries(this.spec).filter(
+      s => !s.series.hidden && s.series.showHoverValue !== false,
+    );
+    if (!series.length) return;
+    const ctx = this.overlayCtx;
+    const fontSize = titleStyle.fontSize ?? 11;
+    const top = titleStyle.paddingTop ?? 8;
+    const left = titleStyle.paddingLeft ?? 8;
+    ctx.save();
+    ctx.font = `${fontSize}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    let x = left + (!externalLegend && this.spec.title
+      ? ctx.measureText(this.spec.title.toUpperCase()).width + 12 : 0);
+    let right = this.width - 60;
+    if (this.collapseEl && this.collapseEl.style.display !== 'none') {
+      const toggle = this.collapseEl.getBoundingClientRect();
+      if (toggle.width > 0 && !externalLegend)
+        x = Math.max(x, toggle.right - this.el.getBoundingClientRect().left + 8);
+    }
+    if (!externalLegend && this.legendEl.style.display !== 'none') {
+      const legend = this.legendEl.getBoundingClientRect();
+      const panel = this.el.getBoundingClientRect();
+      if (legend.width > 0) {
+        if (this.legendEl.style.right) right = Math.min(right, legend.left - panel.left - 8);
+        else x = Math.max(x, legend.right - panel.left + 8);
+      }
+    }
+    if (right > x) {
+      ctx.beginPath();
+      ctx.rect(x, top, right - x, fontSize + 4);
+      ctx.clip();
+      for (const entry of series) {
+        const value = entry.series.values[index];
+        const label = entry.series.label ?? entry.id;
+        const formatted = value !== undefined && Number.isFinite(value) ? value.toFixed(4) : 'n/a';
+        const text = series.length === 1 && this.spec.title && !externalLegend
+          ? formatted : `${label}: ${formatted}`;
+        ctx.fillStyle = entry.series.color;
+        ctx.fillText(text, x, top);
+        x += ctx.measureText(text).width + 16;
+      }
+    }
+    ctx.restore();
   }
 
   /**
@@ -198,10 +257,8 @@ export class Panel {
    * (Re)build the inline legend for this panel based on the current spec and
    * resolved legend mode. Three layouts are produced:
    *
-   *  1. **Pane collapse toggle.** When the panel has exactly one toggleable
-   *     thing and is allowed to collapse (i.e. not the first pane), the eye
-   *     button next to the title controls the entire pane's visibility rather
-   *     than a single series.
+   *  1. **Pane collapse toggle.** Every non-first panel has a pane toggle,
+   *     including panels with multiple series or no visible series legend.
    *  2. **Inline single-series toggle.** When there's exactly one toggleable
    *     thing but collapse is not allowed (first pane), a bare eye button
    *     (no colour swatch) is placed next to the title.
@@ -230,7 +287,25 @@ export class Panel {
       if (mode === true) return true;
       return !!s.series.label; // 'auto'
     });
-    if (!visible.length) {
+    const controls = mode === false ? [] : this.legendControls;
+    const canCollapse = !!this.hooks.canCollapse?.();
+    if (this.collapseEl) {
+      this.collapseEl.style.display = canCollapse ? 'inline-flex' : 'none';
+      if (canCollapse) {
+        const fontSize = titleStyle?.fontSize ?? 11;
+        this.collapseEl.style.position = placement === 'external' ? 'static' : 'absolute';
+        this.collapseEl.style.marginLeft = placement === 'external' ? '8px' : '';
+        this.collapseEl.style.top = `${this.el.offsetTop + (titleStyle?.paddingTop ?? 8)}px`;
+        this.collapseEl.style.left = `${this.el.offsetLeft + (titleStyle?.paddingLeft ?? 8)
+          + (this.spec.title ? this.measureTitle(this.spec.title, fontSize) + 8 : 0)}px`;
+        const sig = `${this.collapsed}|${theme.textDim}`;
+        if (this.collapseEl.dataset['sig'] !== sig) {
+          this.collapseEl.replaceChildren(this.makeCollapseToggle(theme, fontSize));
+          this.collapseEl.dataset['sig'] = sig;
+        }
+      }
+    }
+    if (!visible.length && !controls.length && !canCollapse) {
       if (this.legendEl.style.display !== 'none') this.legendEl.style.display = 'none';
       this.legendEl.replaceChildren();
       this.legendEl.dataset['sig'] = '';
@@ -242,8 +317,7 @@ export class Panel {
     const panelTop = this.el.offsetTop;
     const panelLeft = this.el.offsetLeft;
     const panelWidth = this.el.offsetWidth;
-    const canCollapse = !!this.hooks.canCollapse?.();
-    const single = visible.length === 1;
+    const single = visible.length === 1 && !controls.length;
 
     // Choose layout. In external (sidebar) mode every series gets a full row
     // — no pane-collapse shortcut, no inline single-series shortcut, since
@@ -251,7 +325,7 @@ export class Panel {
     const mode2: 'collapse' | 'single' | 'multi' | 'list' =
       placement === 'external'
         ? 'list'
-        : single && canCollapse
+        : canCollapse && (single || this.collapsed || (!visible.length && !controls.length))
           ? 'collapse'
           : single
             ? 'single'
@@ -298,19 +372,27 @@ export class Panel {
     // Cheap signature so we don't rebuild the DOM every frame.
     const sig = visible
       .map((s) => `${s.id}|${s.series.label ?? ''}|${s.series.metric ?? ''}|${s.series.color}|${s.series.hidden ? 1 : 0}|${s.series.toggleable === undefined ? 'u' : s.series.toggleable ? 't' : 'f'}`)
-      .join('§') + `|m=${mode2}|fs=${fontSize}|t=${this.spec.title ?? ''}|c=${this.collapsed ? 1 : 0}`;
+      .join('§') + controls.map(c => `|${c.id}|${c.label}|${c.color}|${c.hidden}`).join('')
+      + `|m=${mode2}|fs=${fontSize}|t=${this.spec.title ?? ''}|c=${this.collapsed ? 1 : 0}`;
     if (this.legendEl.dataset['sig'] === sig) return;
     this.legendEl.dataset['sig'] = sig;
 
     let rows: HTMLElement[];
     if (mode2 === 'collapse') {
-      rows = [this.makeCollapseToggle(theme, fontSize)];
+      rows = [];
     } else if (mode2 === 'single') {
       rows = [this.makeBareToggle(visible[0]!.id, visible[0]!.series, theme, fontSize)];
     } else {
       // 'multi' and 'list' both render full swatch + label + eye rows.
       const external = mode2 === 'list';
       rows = visible.map((s) => this.makeLegendRow(s.id, s.series, theme, fontSize, external));
+      rows.push(...controls.map(c => this.makeLegendRow(
+        c.id, { label: c.label, color: c.color, hidden: c.hidden, kind: 'line' },
+        theme, fontSize, external, c.onToggle,
+      )));
+      if (canCollapse) {
+        if (this.collapsed) rows = [];
+      }
     }
     this.legendEl.replaceChildren(...rows);
   }
@@ -331,10 +413,11 @@ export class Panel {
 
   private makeLegendRow(
     seriesId: string,
-    s: IndicatorSeries,
+    s: Pick<IndicatorSeries, 'label' | 'color' | 'hidden' | 'kind' | 'metric'>,
     theme: ThemeTokens,
     fontSize: number,
     external = false,
+    onToggle?: () => void,
   ): HTMLDivElement {
     const row = document.createElement('div');
     row.style.cssText = external
@@ -359,7 +442,10 @@ export class Panel {
       ? 'flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'
       : 'white-space:nowrap;';
 
-    const btn = this.makeEyeButton(s.hidden ?? false, theme, () => this.toggleSeriesVisibility(seriesId));
+    const btn = this.makeEyeButton(
+      s.hidden ?? false, theme, onToggle ?? (() => this.toggleSeriesVisibility(seriesId)),
+      onToggle ? `${s.hidden ? 'Show' : 'Hide'} ${s.label ?? seriesId}` : undefined,
+    );
 
     row.appendChild(swatch);
     row.appendChild(label);
@@ -422,6 +508,7 @@ export class Panel {
   }
 
   destroy() {
+    this.collapseEl.remove();
     this.legendEl.remove();
     this.el.remove();
   }

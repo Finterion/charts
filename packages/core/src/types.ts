@@ -48,8 +48,12 @@ export interface Viewport {
 export interface TradeMarker {
   time: number;
   side: 'buy' | 'sell';
+  /** Vertical coordinate: price on price panels, indicator value on indicator panels. */
   price: number;
   label?: string;
+  /** Target panel. Omitted markers retain the legacy price-panel behavior. */
+  panelId?: string;
+  shape?: 'arrow' | 'circle' | 'plus' | 'minus';
 }
 
 export type IndicatorKind = 'line' | 'histogram' | 'area' | 'band' | 'background';
@@ -62,6 +66,8 @@ export type LineStyle = 'solid' | 'dashed' | 'dotted';
 
 export interface IndicatorSeries {
   values: Float32Array;
+  /** Line sampling mask: 0 skips an unobserved timestamp; 1 preserves its value or genuine NaN gap. */
+  sampleMask?: Float32Array;
   kind: IndicatorKind;
   color: string;
   glow?: string;
@@ -115,6 +121,8 @@ export interface IndicatorSeries {
    *   absent means not. Mirrors the existing `'auto'` legend behavior.
    */
   toggleable?: boolean;
+  /** Exclude reference/threshold lines from cursor header values when false. */
+  showHoverValue?: boolean;
   /**
    * If true, the series is skipped during rendering. The legend toggle mutates
    * this flag in place and triggers a redraw.
@@ -233,6 +241,8 @@ export interface PanelSpec {
   weight: number;
   /** Optional title shown top-left of the panel. */
   title?: string;
+  /** Override pane collapse eligibility. By default only non-first panels collapse. */
+  collapsible?: boolean;
   /** For 'price' panels. */
   type?: SeriesType;
   /** For 'indicator' panels. */
@@ -253,10 +263,66 @@ export interface PanelSpec {
   scatter?: ScatterData;
 }
 
+export interface DecisionRule {
+  id: string;
+  label: string;
+  matched?: boolean | null;
+  value?: string | number | boolean | null;
+  description?: string;
+  points?: number;
+  /** Available points for this rule in this group, before group aggregation. */
+  maximumPoints?: number;
+  weight?: number;
+  required?: boolean;
+  timeframe?: string;
+}
+
+export interface DecisionGroup {
+  id: string;
+  title: string;
+  matched?: boolean | null;
+  score?: number;
+  maximumScore?: number;
+  minimumScore?: number;
+  minimumMatches?: number;
+  aggregation?: 'sum' | 'max';
+  rules: DecisionRule[];
+}
+
+/** JSON-only evaluation, anchored to a time-panel value. Scores use raw units. */
+export interface DecisionAnnotation {
+  id: string;
+  /** Short card selector label, e.g. "Long entry". */
+  label?: string;
+  time: number;
+  panelId: string;
+  value: number;
+  action: 'entry' | 'exit' | 'none';
+  signalType?: 'scale_in' | 'scale_out' | 'stop_loss' | 'take_profit';
+  eventType?: 'trigger' | 'fill';
+  direction?: 'long' | 'short';
+  card: {
+    title: string;
+    status: string;
+    reason?: string | null;
+    /** Readable explanation derived from recorded blocking evidence; reason retains the raw code. */
+    reasonDescription?: string;
+    strength?: number;
+    position?: string;
+    qualification?: string;
+    summary?: string;
+    score?: number;
+    minimumScore?: number;
+    maximumScore?: number;
+    groups: DecisionGroup[];
+  };
+}
+
 export interface ChartOptions {
   theme?: ThemeTokens | ThemeName;
   panels?: PanelSpec[];
   markers?: TradeMarker[];
+  decisions?: DecisionAnnotation[];
   /** Initial viewport. Defaults to the last ~200 bars (see `initialFit`). */
   viewport?: Viewport;
   /**
@@ -294,6 +360,8 @@ export interface ChartOptions {
   initialZoom?: number | { x?: number; y?: number };
   /** Pixel gap between stacked panels. Default 0. */
   panelGap?: number;
+  /** Minimum height of the scrollable chart stack in pixels; the decision inspector keeps the container height. */
+  chartMinHeight?: number;
   /** Default title color for all panels. Per-panel `titleColor` overrides this. */
   titleColor?: string;
   /** Padding (in px) of the panel title from the top-left corner. Default `{ top: 8, left: 8 }`. */
@@ -350,8 +418,8 @@ export interface ChartOptions {
   onSeriesVisibilityChange?: (panelId: string, seriesId: string, hidden: boolean) => void;
   /**
    * Fired when a user collapses or expands an entire pane via the title
-   * toggle. Only applies to panels other than the first one (the price pane
-   * is never collapsible).
+   * toggle. Non-first panels are collapsible by default; `PanelSpec.collapsible`
+   * can override this for any panel.
    */
   onPaneCollapseChange?: (panelId: string, collapsed: boolean) => void;
   /**

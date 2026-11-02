@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
-import { ChartFromSpec } from '@finterion/charts-react';
-import { decodeSpec, type ChartSpec } from '@finterion/charts-spec';
+import { ChartCanvas, ChartFromSpec } from '@finterion/charts-react';
+import { decodeSpec, type ChartSpec, type ChartCanvasSpec } from '@finterion/charts-spec';
+
+type EmbedSpec = ChartSpec | ChartCanvasSpec;
 
 /**
  * A static, iframe-friendly embed page for Finterion ChartSpecs.
@@ -19,10 +21,10 @@ export function EmbedApp() {
   // 1. window.__FINTERION_SPEC__ (synchronous; set before this script runs).
   const injected =
     typeof window !== 'undefined'
-      ? ((window as unknown as { __FINTERION_SPEC__?: ChartSpec }).__FINTERION_SPEC__ ?? null)
+      ? ((window as unknown as { __FINTERION_SPEC__?: EmbedSpec }).__FINTERION_SPEC__ ?? null)
       : null;
 
-  const [spec, setSpec] = useState<ChartSpec | null>(injected);
+  const [spec, setSpec] = useState<EmbedSpec | null>(injected);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -39,7 +41,7 @@ export function EmbedApp() {
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           return r.json();
         })
-        .then((json: ChartSpec) => {
+        .then((json: EmbedSpec) => {
           if (!cancelled) setSpec(json);
         })
         .catch((e: Error) => {
@@ -65,7 +67,7 @@ export function EmbedApp() {
 
     // 4. window.postMessage({ type: 'finterion:spec', spec })
     const onMessage = (ev: MessageEvent) => {
-      const data = ev.data as { type?: string; spec?: ChartSpec } | null;
+      const data = ev.data as { type?: string; spec?: EmbedSpec } | null;
       if (data && data.type === 'finterion:spec' && data.spec) {
         setSpec(data.spec);
       }
@@ -125,7 +127,9 @@ export function EmbedApp() {
 
   return (
     <div style={{ width: '100vw', height: '100vh' }}>
-      <ChartFromSpec spec={spec} />
+      {'kind' in spec && spec.kind === 'canvas'
+        ? <ChartCanvas spec={spec} />
+        : <ChartFromSpec spec={spec as ChartSpec} />}
     </div>
   );
 }

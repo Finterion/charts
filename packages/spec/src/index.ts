@@ -13,10 +13,12 @@
  */
 
 export { CHART_SPEC_SCHEMA } from './schema';
+export { validateCanvasSpec, type ChartCanvasSpec } from './canvas';
 
 import type {
   BrandingOptions,
   ChartOptions,
+  DecisionAnnotation,
   HBarData,
   HeatmapData,
   HistogramData,
@@ -32,9 +34,11 @@ import type {
   TradeMarker,
   VBarData,
 } from '@finterion/charts-core';
+import { validateDecisions } from '@finterion/charts-core';
+import type { ChartCanvasSpec } from './canvas';
 
 // Re-export so consumers can `import type { LineStyle } from '@finterion/charts-spec'`.
-export type { LineStyle, ThemeName, IndicatorKind, BrandingOptions } from '@finterion/charts-core';
+export type { LineStyle, ThemeName, IndicatorKind, BrandingOptions, DecisionAnnotation, DecisionRule, DecisionGroup } from '@finterion/charts-core';
 
 /** JSON form of `BrandingOptions` — same shape, alias for spec consumers. */
 export type BrandingSpec = BrandingOptions;
@@ -72,8 +76,9 @@ export interface ChartSpec {
     /** Free-form numeric columns. Indicator panels may reference these by name.
      *  `null` entries represent gaps (rendered as NaN — line breaks at gaps). */
     columns?: Record<string, (number | null)[]>;
-    /** Trade markers. */
+    /** Price or panel-targeted indicator markers. */
     markers?: TradeMarker[];
+    decisions?: DecisionAnnotation[];
   };
 
   display?: {
@@ -82,6 +87,7 @@ export interface ChartSpec {
     gridColor?: string;
     gridStyle?: 'none' | 'horizontal' | 'full';
     panelGap?: number;
+    chartMinHeight?: number;
     titleColor?: string;
     titleFontSize?: number;
     titleSpace?: number;
@@ -138,6 +144,7 @@ export interface BasePanelSpec {
   weight: number;
   title?: string;
   titleColor?: string;
+  collapsible?: boolean;
 }
 
 export interface PricePanelSpec extends BasePanelSpec {
@@ -157,6 +164,8 @@ export interface IndicatorSeriesSpec {
   /** Either a literal numeric array OR a `data.columns` key reference.
    *  `null` entries represent gaps (rendered as NaN). */
   values: (number | null)[] | { column: string };
+  /** Line sampling mask: 0 = unobserved timestamp; 1 = recorded value or genuine gap. */
+  sampleMask?: (number | null)[] | { column: string };
   kind: IndicatorKind;
   color: string;
   glow?: string;
@@ -178,6 +187,7 @@ export interface IndicatorSeriesSpec {
   metric?: string;
   /** Explicit override for the legend toggle UI. `true` forces inclusion, `false` excludes. Default: infer from `label`. */
   toggleable?: boolean;
+  showHoverValue?: boolean;
   /** If true, the series starts hidden. Toggling the legend mutates this flag. */
   hidden?: boolean;
 }
@@ -298,6 +308,10 @@ export function validateSpec(spec: unknown): ValidationResult {
   }
   const s = spec as Partial<ChartSpec>;
   if (s.version !== 1) push(`version must be 1 (got ${String(s.version)})`);
+  if (s.display?.chartMinHeight !== undefined &&
+      (!Number.isFinite(s.display.chartMinHeight) || s.display.chartMinHeight < 0)) {
+    push('display.chartMinHeight must be a finite non-negative number');
+  }
   if (!Array.isArray(s.panels)) {
     push('panels must be an array');
     return { ok: false, errors };
@@ -311,13 +325,34 @@ export function validateSpec(spec: unknown): ValidationResult {
     else ids.add(p.id);
     if (!PANEL_KINDS.includes(p.kind)) push(`panels[${i}].kind "${String(p.kind)}" is invalid`);
     if (typeof p.weight !== 'number' || p.weight <= 0) push(`panels[${i}].weight must be a positive number`);
+    if (p.collapsible !== undefined && typeof p.collapsible !== 'boolean') push(`panels[${i}].collapsible must be a boolean`);
   });
 
   const hasTimePanel = s.panels.some((p) => p?.kind === 'price' || p?.kind === 'indicator');
   if (hasTimePanel && !s.data?.bars) {
     push('data.bars is required when a price/indicator panel is present');
   }
+  if (s.data?.markers !== undefined) {
+    if (!Array.isArray(s.data.markers)) {
+      push('data.markers must be an array');
+    } else {
+      s.data.markers.forEach((marker, i) => {
+        if (!marker || typeof marker !== 'object') {
+          push(`data.markers[${i}] must be an object`);
+          return;
+        }
+        if (marker.panelId !== undefined && !s.panels!.some((panel) =>
+          panel?.id === marker.panelId && (panel.kind === 'price' || panel.kind === 'indicator'))) {
+          push(`data.markers[${i}].panelId must reference a price/indicator panel`);
+        }
+        if (marker.shape !== undefined && !['arrow', 'circle', 'plus', 'minus'].includes(marker.shape)) {
+          push(`data.markers[${i}].shape must be arrow, circle, plus or minus`);
+        }
+      });
+    }
+  }
 
+  if (s.data?.decisions !== undefined) errors.push(...validateDecisions(s.data.decisions, s.panels.filter(Boolean)));
   return { ok: errors.length === 0, errors };
 }
 
@@ -330,6 +365,7 @@ export interface CompiledChart {
   panels: PanelSpec[];
   options: ChartOptions;
   markers: TradeMarker[] | undefined;
+  decisions: DecisionAnnotation[] | undefined;
 }
 
 export function compileSpec(spec: ChartSpec): CompiledChart {
@@ -341,11 +377,13 @@ export function compileSpec(spec: ChartSpec): CompiledChart {
   const panels = spec.panels.map((p) => compilePanel(p, columns));
 
   const options: ChartOptions = {
+    decisions: spec.data?.decisions,
     ...(spec.display?.theme !== undefined ? { theme: spec.display.theme } : {}),
     ...(spec.display?.background !== undefined ? { background: spec.display.background } : {}),
     ...(spec.display?.gridColor !== undefined ? { gridColor: spec.display.gridColor } : {}),
     ...(spec.display?.gridStyle !== undefined ? { gridStyle: spec.display.gridStyle } : {}),
     ...(spec.display?.panelGap !== undefined ? { panelGap: spec.display.panelGap } : {}),
+    ...(spec.display?.chartMinHeight !== undefined ? { chartMinHeight: spec.display.chartMinHeight } : {}),
     ...(spec.display?.titleColor !== undefined ? { titleColor: spec.display.titleColor } : {}),
     ...(spec.display?.titleFontSize !== undefined ? { titleFontSize: spec.display.titleFontSize } : {}),
     ...(spec.display?.titleSpace !== undefined ? { titleSpace: spec.display.titleSpace } : {}),
@@ -356,7 +394,7 @@ export function compileSpec(spec: ChartSpec): CompiledChart {
     ...(spec.display?.branding !== undefined ? { branding: spec.display.branding } : {}),
   };
 
-  return { data, panels, options, markers: spec.data?.markers };
+  return { data, panels, options, markers: spec.data?.markers, decisions: spec.data?.decisions };
 }
 
 function barsToOHLC(b: NonNullable<NonNullable<ChartSpec['data']>['bars']>): OHLC[] {
@@ -400,6 +438,13 @@ function compileIndicator(s: IndicatorSeriesSpec, columns: Record<string, (numbe
     color: s.color,
   };
   if (s.glow !== undefined) out.glow = s.glow;
+  if (s.sampleMask !== undefined) {
+    const mask = resolveValues(s.sampleMask, columns);
+    if (s.kind !== 'line' || mask.length !== out.values.length || mask.some(v => v !== 0 && v !== 1)) {
+      throw new Error('sampleMask requires a line series and one 0 or 1 per value');
+    }
+    out.sampleMask = mask;
+  }
   if (s.lineStyle !== undefined) out.lineStyle = s.lineStyle;
   if (s.colorNegative !== undefined) out.colorNegative = s.colorNegative;
   if (s.lowerValues !== undefined) out.lowerValues = resolveValues(s.lowerValues, columns);
@@ -409,6 +454,7 @@ function compileIndicator(s: IndicatorSeriesSpec, columns: Record<string, (numbe
   if (s.label !== undefined) out.label = s.label;
   if (s.metric !== undefined) out.metric = s.metric;
   if (s.toggleable !== undefined) out.toggleable = s.toggleable;
+  if (s.showHoverValue !== undefined) out.showHoverValue = s.showHoverValue;
   if (s.hidden !== undefined) out.hidden = s.hidden;
   return out;
 }
@@ -421,6 +467,7 @@ function compilePanel(p: PanelSpecSpec, columns: Record<string, (number | null)[
   };
   if (p.title !== undefined) base.title = p.title;
   if (p.titleColor !== undefined) base.titleColor = p.titleColor;
+  if (p.collapsible !== undefined) base.collapsible = p.collapsible;
 
   switch (p.kind) {
     case 'price': {
@@ -586,7 +633,7 @@ export function getChartCapabilities(): ChartCapabilities {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Encode a ChartSpec to a URL-safe base64 string (no compression). */
-export function encodeSpec(spec: ChartSpec): string {
+export function encodeSpec(spec: ChartSpec | ChartCanvasSpec): string {
   const json = JSON.stringify(spec);
   // base64url
   const b64 =

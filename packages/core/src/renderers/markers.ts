@@ -1,7 +1,14 @@
-import type { OHLCBuffer, TradeMarker } from '../types';
+import type { OHLCBuffer, PanelSpec, TradeMarker } from '../types';
 import type { PanelLayout } from './layout';
 import { xCenter, yPos } from './layout';
 import { indexAtTime } from '../data/buffer';
+
+export function markersForPanel(markers: TradeMarker[], panel: Pick<PanelSpec, 'id' | 'kind'>): TradeMarker[] {
+  if (panel.kind !== 'price' && panel.kind !== 'indicator') return [];
+  return markers.filter((marker) => marker.panelId === undefined
+    ? panel.kind === 'price'
+    : marker.panelId === panel.id);
+}
 
 export function renderMarkers(layout: PanelLayout, buf: OHLCBuffer, markers: TradeMarker[]) {
   if (!markers.length) return;
@@ -23,13 +30,32 @@ export function renderMarkers(layout: PanelLayout, buf: OHLCBuffer, markers: Tra
     ctx.shadowBlur = 12;
     ctx.lineWidth = 1.5;
 
-    const offset = 16 * dir;
-    ctx.beginPath();
-    ctx.moveTo(x, y + offset);
-    ctx.lineTo(x - 6, y + offset + 10 * dir);
-    ctx.lineTo(x + 6, y + offset + 10 * dir);
-    ctx.closePath();
-    ctx.fill();
+    if (m.shape === 'plus' || m.shape === 'minus') {
+      ctx.beginPath();
+      ctx.moveTo(x - 5, y);
+      ctx.lineTo(x + 5, y);
+      if (m.shape === 'plus') {
+        ctx.moveTo(x, y - 5);
+        ctx.lineTo(x, y + 5);
+      }
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+    }
+    const circle = m.shape === 'circle';
+    const sign = m.shape === 'plus' || m.shape === 'minus';
+    const offset = circle || sign ? 0 : 16 * dir;
+    if (!sign) {
+      ctx.beginPath();
+      if (circle) {
+        ctx.arc(x, y, 4, 0, Math.PI * 2);
+      } else {
+        ctx.moveTo(x, y + offset);
+        ctx.lineTo(x - 6, y + offset + 10 * dir);
+        ctx.lineTo(x + 6, y + offset + 10 * dir);
+      }
+      ctx.closePath();
+      ctx.fill();
+    }
 
     ctx.shadowBlur = 0;
     if (m.label) {

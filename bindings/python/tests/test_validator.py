@@ -30,6 +30,38 @@ def test_validate_spec_accepts_minimal():
     assert res.ok, res.errors
 
 
+@pytest.mark.parametrize("panel_id", ["missing", "", None, 42])
+def test_validate_spec_rejects_invalid_marker_panel(panel_id):
+    spec = _minimal_spec()
+    spec["data"]["markers"] = [{
+        "time": 1, "side": "buy", "price": 10, "panelId": panel_id,
+    }]
+    result = validate_spec(spec)
+    assert not result.ok
+    assert any("panelId" in error for error in result.errors)
+
+
+def test_validate_spec_rejects_marker_on_non_time_panel():
+    spec = _minimal_spec()
+    spec["panels"].append({
+        "id": "scatter", "kind": "scatter", "weight": 1, "points": [],
+    })
+    spec["data"]["markers"] = [{
+        "time": 1, "side": "buy", "price": 10, "panelId": "scatter",
+    }]
+    assert not validate_spec(spec).ok
+
+
+def test_validators_reject_unknown_marker_shape():
+    pytest.importorskip("jsonschema")
+    spec = _minimal_spec()
+    spec["data"]["markers"] = [{
+        "time": 1, "side": "buy", "price": 10, "shape": "triangle",
+    }]
+    assert not validate_spec(spec).ok
+    assert not validate_schema(spec).ok
+
+
 def test_validate_spec_rejects_wrong_version():
     spec = _minimal_spec()
     spec["version"] = 2

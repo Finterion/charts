@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from .builder import ChartSpec
+    from .canvas import ChartCanvas
 
 
 _BUNDLED_HTML_RESOURCE = ("_static", "embed.html")
@@ -62,14 +63,15 @@ def _inject_spec(html: str, spec_dict: dict[str, Any]) -> str:
     return html.replace(_SPEC_PLACEHOLDER, spec_json)
 
 
-def _resolve_spec_dict(spec: "ChartSpec | dict[str, Any]") -> dict[str, Any]:
+def _resolve_spec_dict(spec: "ChartSpec | ChartCanvas | dict[str, Any]") -> dict[str, Any]:
     from .builder import ChartSpec
+    from .canvas import ChartCanvas
 
-    if isinstance(spec, ChartSpec):
+    if isinstance(spec, (ChartSpec, ChartCanvas)):
         return spec.to_dict()
     if isinstance(spec, dict):
         return spec
-    raise TypeError(f"spec must be ChartSpec or dict, got {type(spec).__name__}")
+    raise TypeError(f"spec must be ChartSpec, ChartCanvas or dict, got {type(spec).__name__}")
 
 
 def _import_ipython() -> Any:
@@ -106,7 +108,7 @@ class _InlineChart:
 
 
 def display_inline(
-    spec: "ChartSpec | dict[str, Any]",
+    spec: "ChartSpec | ChartCanvas | dict[str, Any]",
     *,
     width: int | str = "100%",
     height: int | str = 480,
@@ -131,13 +133,13 @@ def display_inline(
         f'<iframe srcdoc="{srcdoc}" '
         f'style="width:{_to_css_size(width)};height:{_to_css_size(height)};'
         'border:0;display:block;background:transparent;" '
-        'sandbox="allow-scripts" loading="lazy"></iframe>'
+        'sandbox="allow-scripts" allow="fullscreen" allowfullscreen loading="lazy"></iframe>'
     )
     return _InlineChart(iframe)
 
 
 def display_spec(
-    spec: "ChartSpec | dict[str, Any]",
+    spec: "ChartSpec | ChartCanvas | dict[str, Any]",
     *,
     base: str | None = None,
     width: int | str = "100%",
@@ -164,10 +166,9 @@ def display_spec(
         if not base:
             raise ValueError("mode='url' requires a non-empty `base`")
         ipd = _import_ipython()
-        from .builder import ChartSpec
         from .codec import encode_spec
 
-        encoded = spec.encode() if isinstance(spec, ChartSpec) else encode_spec(spec)
+        encoded = encode_spec(_resolve_spec_dict(spec))
         src = f"{base.rstrip('#')}#spec={encoded}"
         return ipd.IFrame(src=src, width=width, height=height)
 

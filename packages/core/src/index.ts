@@ -5,6 +5,9 @@ export type {
   ThemeTokens,
   Viewport,
   TradeMarker,
+  DecisionAnnotation,
+  DecisionRule,
+  DecisionGroup,
   IndicatorKind,
   IndicatorSeries,
   LineStyle,
@@ -20,6 +23,7 @@ export type {
 } from './types';
 
 export { Chart, createChart } from './panels/chart';
+export { validateDecisions } from './panels/decisions';
 export { createBuffer, appendBar, indexAtTime, alignByDuration } from './data/buffer';
 export type { DurationSeriesInput, AlignByDurationOptions, AlignByDurationResult } from './data/buffer';
 export { ema, rsi, drawdown } from './data/indicators';

@@ -196,7 +196,14 @@ export function renderIndicator(layout: PanelLayout, series: IndicatorSeries) {
     }
     ctx.beginPath();
     let penDown = false;
-    for (let i = s; i <= e; i++) {
+    let first = s;
+    let last = e;
+    if (series.sampleMask) {
+      while (first > 0 && series.sampleMask[first] === 0) first--;
+      while (last < series.values.length - 1 && series.sampleMask[last] === 0) last++;
+    }
+    for (let i = first; i <= last; i++) {
+      if (series.sampleMask?.[i] === 0) continue;
       const v = series.values[i]!;
       if (!Number.isFinite(v)) { penDown = false; continue; }
       const x = xCenter(i, viewport, width);

@@ -381,6 +381,8 @@ class Indicator:
     metric: str | None = None
     toggleable: bool | None = None
     hidden: bool | None = None
+    show_hover_value: bool | None = None
+    sample_mask: ValuesRef | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -410,6 +412,12 @@ class Indicator:
             d["toggleable"] = bool(self.toggleable)
         if self.hidden is not None:
             d["hidden"] = bool(self.hidden)
+        if self.show_hover_value is not None:
+            d["showHoverValue"] = self.show_hover_value
+        if self.sample_mask is not None:
+            if self.kind != "line":
+                raise ValueError("sample_mask is only supported for line series")
+            d["sampleMask"] = _values_ref(self.sample_mask)
         return d
 
     # ---- convenience constructors ------------------------------------------
@@ -455,12 +463,15 @@ class Indicator:
         label: str | None = None,
         metric: str | None = None,
         overlays: Sequence["Indicator"] | None = None,
+        sample_mask: ValuesRef | None = None,
+        collapsible: bool | None = None,
     ) -> "IndicatorPanel":
         return IndicatorPanel(
             id=id,
             weight=weight,
             title=title,
             title_color=title_color,
+            collapsible=collapsible,
             indicator=cls(
                 values=values,
                 kind=kind,
@@ -472,6 +483,7 @@ class Indicator:
                 y_range=y_range,
                 label=label,
                 metric=metric,
+                sample_mask=sample_mask,
             ),
             overlays=list(overlays) if overlays else None,
         )
@@ -488,6 +500,7 @@ class _BasePanel:
     weight: float
     title: str | None = None
     title_color: str | None = None
+    collapsible: bool | None = field(default=None, kw_only=True)
 
     def _base(self, kind: str) -> dict[str, Any]:
         d: dict[str, Any] = {"id": self.id, "kind": kind, "weight": float(self.weight)}
@@ -495,6 +508,8 @@ class _BasePanel:
             d["title"] = self.title
         if self.title_color is not None:
             d["titleColor"] = self.title_color
+        if self.collapsible is not None:
+            d["collapsible"] = self.collapsible
         return d
 
 
@@ -712,10 +727,14 @@ Panel = Union[Price, IndicatorPanel, Heatmap, HBar, VBar, Histogram, Scatter]
 
 @dataclass
 class Marker:
+    """A price/indicator marker; ``price`` is its vertical coordinate."""
+
     time: float
     side: Side
     price: float
     label: str | None = None
+    panel_id: str | None = None
+    shape: Literal["arrow", "circle", "plus", "minus"] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -725,6 +744,10 @@ class Marker:
         }
         if self.label is not None:
             d["label"] = self.label
+        if self.panel_id is not None:
+            d["panelId"] = self.panel_id
+        if self.shape is not None:
+            d["shape"] = self.shape
         return d
 
 
@@ -819,6 +842,8 @@ class Display:
     #: - ``Branding(...)`` instance: customize the badge.
     branding: bool | Branding | None = None
 
+    chart_min_height: float | None = None
+
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {}
         if self.theme is not None:
@@ -831,6 +856,8 @@ class Display:
             d["gridStyle"] = self.grid_style
         if self.panel_gap is not None:
             d["panelGap"] = float(self.panel_gap)
+        if self.chart_min_height is not None:
+            d["chartMinHeight"] = float(self.chart_min_height)
         if self.title_color is not None:
             d["titleColor"] = self.title_color
         if self.title_font_size is not None:
@@ -920,7 +947,7 @@ _SHOW_HTML_TEMPLATE = """<!doctype html>
 </style>
 </head>
 <body>
-<iframe id="chart" src="{embed_src}" allow="clipboard-write"></iframe>
+<iframe id="chart" src="{embed_src}" allow="clipboard-write; fullscreen" allowfullscreen></iframe>
 <script>
   const SPEC = {spec_json};
   const iframe = document.getElementById('chart');
@@ -955,6 +982,7 @@ class ChartSpec:
     bars: dict[str, list[float]] | None = None
     columns: dict[str, list[float | None]] = field(default_factory=dict)
     markers: list[Marker] = field(default_factory=list)
+    decisions: list[dict[str, Any]] = field(default_factory=list)
     panels: list[Panel] = field(default_factory=list)
 
     # Convenience kwargs for Display so users don't have to construct it explicitly.
@@ -966,6 +994,7 @@ class ChartSpec:
         grid_color: str | None = None,
         grid: GridStyle | None = None,
         panel_gap: float | None = None,
+        chart_min_height: float | None = None,
         title_color: str | None = None,
         title_font_size: float | None = None,
         title_space: float | None = None,
@@ -981,6 +1010,7 @@ class ChartSpec:
             grid_color=grid_color,
             grid_style=grid,
             panel_gap=panel_gap,
+            chart_min_height=chart_min_height,
             title_color=title_color,
             title_font_size=title_font_size,
             title_space=title_space,
@@ -993,6 +1023,7 @@ class ChartSpec:
         self.bars = None
         self.columns = {}
         self.markers = []
+        self.decisions = []
         self.panels = []
 
     # ---- bars / columns / markers ------------------------------------------
@@ -1081,6 +1112,11 @@ class ChartSpec:
         self.markers.append(marker)
         return self
 
+    def add_decision(self, decision: dict[str, Any]) -> "ChartSpec":
+        """Append a JSON decision annotation; validate with ``validate()``."""
+        self.decisions.append(decision)
+        return self
+
     def add_markers(self, markers: Iterable[Marker]) -> "ChartSpec":
         self.markers.extend(markers)
         return self
@@ -1107,6 +1143,8 @@ class ChartSpec:
             data["columns"] = self.columns
         if self.markers:
             data["markers"] = [m.to_dict() for m in self.markers]
+        if self.decisions:
+            data["decisions"] = self.decisions
         if data:
             spec["data"] = data
 

@@ -19,6 +19,66 @@ Plus two apps:
 | [`apps/playground`](apps/playground) | Vite playground with a SuperTrend live-coding demo and a portfolio tearsheet. `pnpm dev`. |
 | [`apps/embed`](apps/embed) | Static iframe page that renders any `ChartSpec` from `?src=`, `#spec=` or `postMessage`. |
 
+The vertical crosshair snaps to the nearest bar center. Hover, pan, and
+cursor-anchored zoom use the same canvas width in both standalone and embedded charts.
+
+### Pan and zoom
+
+Drag normally to pan the shared time axis. **Shift + drag** inside a price or
+indicator panel draws a dashed selection box: release to zoom the time axis to that
+region and that panel's Y-axis to the selected values. Dragging in either
+direction works; the selection stays within the starting panel. Press
+**Escape** to cancel. Tiny selections (less than 4 pixels on either axis) do
+nothing, and time zoom retains a minimum span of 10 bars where available.
+
+**Scroll over the Y-axis labels** to zoom only that panel's vertical range,
+without Ctrl/Cmd and without changing the time axis or scrolling the page.
+Existing Y-axis dragging and double-click autoscale reset remain available;
+reset also clears a box-selected vertical range.
+Normal wheel behavior over the plot is unchanged, including Ctrl/Cmd zoom
+when panels overflow. These gestures are disabled by `interactive: false`;
+box zoom is unavailable while Compare points is active.
+
+Decision annotations can set `signalType` to `scale_in`, `scale_out`,
+`stop_loss`, or `take_profit`. Scale decisions use + and - symbols.
+Protective exits use SL/TP badges: `eventType: 'trigger'` is hollow and
+`eventType: 'fill'` is solid, with separate legend filters and inspector cards.
+Simultaneous triggers and fills are offset left/right so both can be selected.
+Existing annotations without these optional fields retain their circle markers.
+Trade markers also accept `shape: 'plus'` and `shape: 'minus'`.
+
+### Compare points
+
+The left-hand vertical toolbar contains **Main time axis** and **Compare points**
+icon buttons. Hover a button for its tooltip; active tools are highlighted.
+Use Tab to focus the tools and Up/Down arrows to move between them.
+Use **Hide toolbar** at the bottom of the sidebar to reclaim the chart space;
+the small **Show toolbar** tab on the left edge brings it back. Hiding the
+toolbar preserves active tools and selected comparison points.
+**Main time axis** moves the shared time axis below the main panel (click again
+to return it to the bottom).
+
+Click **Compare points** in that toolbar, then click timestamps in any
+price or indicator panel. Each click adds a numbered point across the shared
+time panels; clicking a selected timestamp again removes it. The right-hand
+side panel compares OHLCV, indicators, overlays and both bounds of bands,
+including hidden series. Add as many points as needed and scroll the table
+horizontally to compare them.
+
+The first selected point is the baseline. Subsequent columns show the value,
+absolute change and percentage change (`100 * (value - baseline) / abs(baseline)`).
+A zero baseline has no percentage change; missing/non-finite values show `N/A`.
+Removing the baseline makes the next selected point the baseline.
+Non-time panels (such as scatter plots and heatmaps) are explicitly marked as
+not timestamp-comparable.
+
+Use **Remove** or **Clear all** to manage points. **Close** (or the toolbar
+button) returns to normal chart navigation and the decision inspector; reopening
+Compare restores the selection. Points stay anchored to timestamps during
+pan/zoom and data updates; timestamps removed from the data are discarded.
+Comparison is available in React, JSON-spec embeds and Python's bundled offline
+renderer without extra configuration, and is disabled for non-interactive charts.
+
 ---
 
 ## Installation

@@ -10,6 +10,7 @@ import {
   type ThemeName,
   type ThemeTokens,
   type TradeMarker,
+  type DecisionAnnotation,
   type Viewport,
 } from '@finterion/charts-core';
 
@@ -19,6 +20,7 @@ export interface ChartProps {
   panels: PanelSpec[];
   theme?: ThemeTokens | ThemeName;
   markers?: TradeMarker[];
+  decisions?: DecisionAnnotation[];
   viewport?: Viewport;
   onViewportChange?: (vp: Viewport) => void;
   /**
@@ -46,6 +48,7 @@ export interface ChartProps {
   initialZoom?: number | { x?: number; y?: number };
   /** Pixel gap between stacked panels. */
   panelGap?: number;
+  chartMinHeight?: number;
   /** Default title color for all panels. */
   titleColor?: string;
   /** Padding (in px) of panel titles. */
@@ -77,7 +80,7 @@ export interface ChartProps {
   legendMaxHeight?: number;
   /** Fired when a user toggles a series via the inline legend. */
   onSeriesVisibilityChange?: (panelId: string, seriesId: string, hidden: boolean) => void;
-  /** Fired when a user collapses/expands a non-first pane via the title toggle. */
+  /** Fired when a user collapses/expands an eligible pane via the title toggle. */
   onPaneCollapseChange?: (panelId: string, collapsed: boolean) => void;
   /**
    * "Powered by Finterion" attribution badge. `true`/omitted shows the badge,
@@ -162,10 +165,12 @@ export function Chart(props: ChartProps) {
       theme: props.theme,
       panels: props.panels,
       markers: props.markers,
+      decisions: props.decisions,
       viewport: props.viewport,
       initialFit: props.initialFit,
       initialZoom: props.initialZoom,
       panelGap: props.panelGap,
+      chartMinHeight: props.chartMinHeight,
       titleColor: props.titleColor,
       titlePadding: props.titlePadding,
       titleFontSize: props.titleFontSize,
@@ -209,6 +214,10 @@ export function Chart(props: ChartProps) {
   }, [props.markers]);
 
   useEffect(() => {
+    chartRef.current?.setDecisions(props.decisions ?? []);
+  }, [props.decisions]);
+
+  useEffect(() => {
     if (!chartRef.current || !props.theme) return;
     chartRef.current.setTheme(props.theme);
   }, [props.theme]);
@@ -227,6 +236,7 @@ export function Chart(props: ChartProps) {
     if (!chartRef.current) return;
     chartRef.current.setDisplayOptions({
       panelGap: props.panelGap,
+      chartMinHeight: props.chartMinHeight,
       titleColor: props.titleColor,
       titlePadding: props.titlePadding,
       titleFontSize: props.titleFontSize,
@@ -242,7 +252,7 @@ export function Chart(props: ChartProps) {
       onSeriesVisibilityChange: props.onSeriesVisibilityChange,
       onPaneCollapseChange: props.onPaneCollapseChange,
     });
-  }, [props.panelGap, props.titleColor, props.titlePadding, props.titleFontSize, props.titleSpace, props.showTimeAxis, props.gridStyle, props.background, props.gridColor, props.showLegend, props.legendPosition, props.legendWidth, props.legendMaxHeight, props.onSeriesVisibilityChange, props.onPaneCollapseChange]);
+  }, [props.panelGap, props.chartMinHeight, props.titleColor, props.titlePadding, props.titleFontSize, props.titleSpace, props.showTimeAxis, props.gridStyle, props.background, props.gridColor, props.showLegend, props.legendPosition, props.legendWidth, props.legendMaxHeight, props.onSeriesVisibilityChange, props.onPaneCollapseChange]);
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', ...props.style }} className={props.className}>
