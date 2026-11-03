@@ -3,6 +3,7 @@ name: Release
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: release-${{ github.ref }}
@@ -35,24 +36,31 @@ jobs:
           cache: pnpm
           registry-url: https://registry.npmjs.org
 
+      - name: Setup npm staging CLI
+        run: npm install --global npm@11.21.1
+
+      - name: Test release staging
+        run: node --test scripts/stage-release.test.mjs
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Build packages
         run: pnpm build
 
-      - name: Create release PR or publish
+      - name: Create release PR
         id: changesets
         uses: changesets/action@v1
         with:
-          # `version` opens / updates a "Version Packages" PR.
-          # `publish` (when there's nothing to version, i.e. PR was merged)
-          # publishes the freshly-versioned packages to npm.
           version: pnpm changeset version
-          publish: pnpm release
           commit: "chore(release): version packages"
           title: "chore(release): version packages"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Stage packages for maintainer approval
+        if: steps.changesets.outputs.hasChangesets == 'false'
+        run: pnpm release
+        env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

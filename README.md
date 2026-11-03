@@ -217,7 +217,32 @@ Versioning is managed with [Changesets](https://github.com/changesets/changesets
 2. When merged to `main`, the [`release` workflow](.github/workflows/release.yml)
    opens a "Version Packages" PR that bumps versions and updates `CHANGELOG.md`.
 
-3. Merging that PR triggers `pnpm release`, which builds and publishes to npm.
+3. Merging that PR triggers `pnpm release`, which builds and **stages** npm
+   tarballs using `npm stage publish`. Published or already-staged versions are
+   skipped so reruns can safely resume a partial release. Tarballs are packed
+   with pnpm so internal `workspace:*` dependencies become actual versions.
+
+4. A maintainer reviews the stage IDs in the workflow summary and approves
+   each package from a local terminal with npm **11.21.1** or newer:
+
+   ```bash
+   npm login
+   npm stage list @finterion/charts-core
+   npm stage list @finterion/charts-spec
+   npm stage list @finterion/charts-react
+   npm stage view <stage-id>
+   npm stage approve <stage-id>
+   ```
+
+   Approval prompts for 2FA. Approve core, then spec, then react so dependencies
+   are available first. A successful staging workflow does **not** mean the
+   packages are publicly available; it does not create published GitHub releases
+   or git tags. Verify all three versions after approval with
+   `npm view <package>@<version> version`.
+
+The workflow can also be started manually with **Run workflow** after a token
+update or to resume staging. Rerunning an older run uses its old workflow code;
+start a new run after merging workflow changes.
 
 The three publishable packages (`@finterion/charts-core`, `@finterion/charts-react`,
 `@finterion/charts-spec`) are versioned together (`linked`); the playground and
@@ -225,11 +250,14 @@ embed apps are `private` and never published.
 
 ### One-time setup before the first release
 
-- Add `NPM_TOKEN` (an automation token with `publish` rights for the
-  `@finterion` scope) to the repo's GitHub Actions secrets.
-- Ensure the `@finterion` npm org exists and your token can publish to it.
-- The first time the workflow runs, it will publish whatever versions are in
-  `package.json` (currently `0.1.0`) — no changeset needed for the initial release.
+- Add `NPM_TOKEN` (a stage-only token with read/write access to all three
+  packages) to the repo's GitHub Actions secrets. No 2FA bypass is needed.
+- Ensure the `@finterion` npm org exists and the token owner has package write
+  access. Approving maintainers must have 2FA enabled on their npm accounts.
+- The first time the workflow runs, it stages the versions in `package.json`
+  without requiring an initial changeset.
+- Local `pnpm release` also requires npm 11.21.1 or newer and npm authentication.
+  See [npm's staged publishing documentation](https://docs.npmjs.com/cli/v11/commands/npm-stage).
 
 ---
 
