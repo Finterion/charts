@@ -49,14 +49,25 @@ Trade markers also accept `shape: 'plus'` and `shape: 'minus'`.
 
 ### Compare points
 
-The left-hand vertical toolbar contains **Main time axis** and **Compare points**
+The left-hand vertical toolbar contains **X axis placement**, **Compare points**,
+**Panel visibility**, and **Enter fullscreen**
 icon buttons. Hover a button for its tooltip; active tools are highlighted.
 Use Tab to focus the tools and Up/Down arrows to move between them.
 Use **Hide toolbar** at the bottom of the sidebar to reclaim the chart space;
 the small **Show toolbar** tab on the left edge brings it back. Hiding the
 toolbar preserves active tools and selected comparison points.
-**Main time axis** moves the shared time axis below the main panel (click again
-to return it to the bottom).
+**X axis placement** opens a picker for the shared time-axis location.
+**Panel visibility** opens a checkbox picker for showing or collapsing multiple
+panels together. **Show all** and **Hide all** change the selection; **Apply**
+confirms it. **Cancel**, Escape, or an outside click discards changes.
+Collapsed panels retain their title rows, just like their eye controls;
+non-collapsible panels remain visible. Matching panels retain their collapsed
+state when their definitions are refreshed.
+
+**Enter fullscreen** expands this chart, including its toolbar and inspectors,
+using the browser Fullscreen API. Use **Exit fullscreen** or Escape to return.
+The host page must permit fullscreen for embedded charts; if the browser or
+notebook host denies it, the chart displays an explanation without losing state.
 
 Click **Compare points** in that toolbar, then click timestamps in any
 price or indicator panel. Each click adds a numbered point across the shared

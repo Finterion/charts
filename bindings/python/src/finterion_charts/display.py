@@ -170,7 +170,10 @@ def display_spec(
 
         encoded = encode_spec(_resolve_spec_dict(spec))
         src = f"{base.rstrip('#')}#spec={encoded}"
-        return ipd.IFrame(src=src, width=width, height=height)
+        return ipd.IFrame(
+            src=src, width=width, height=height,
+            extras=['allow="fullscreen"', "allowfullscreen"],
+        )
 
     raise ValueError(f"unknown mode {mode!r}; expected 'inline', 'url', or 'auto'")
 

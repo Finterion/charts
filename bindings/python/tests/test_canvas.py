@@ -66,6 +66,8 @@ def test_url_mode_encodes_the_whole_canvas():
     canvas = ChartCanvas("Symbols", {"BTC": chart(), "ETH": chart()})
     iframe = canvas.display_in_jupyter(mode="url", base="https://example.test/embed")
     assert decode_spec(iframe.src.split("#spec=", 1)[1]) == canvas.to_dict()
+    assert 'allow="fullscreen"' in iframe._repr_html_()
+    assert "allowfullscreen" in iframe._repr_html_()
 
 
 def test_display_helpers_accept_canvas_objects():

@@ -501,7 +501,12 @@ export class Panel {
   }
 
   private togglePaneCollapsed() {
-    this.collapsed = !this.collapsed;
+    this.setCollapsed(!this.collapsed);
+  }
+
+  setCollapsed(collapsed: boolean) {
+    if (this.collapsed === collapsed) return;
+    this.collapsed = collapsed;
     this.legendEl.dataset['sig'] = '';
     this.hooks.onCollapseToggle?.(this.spec.id, this.collapsed);
     this.hooks.requestRedraw?.();

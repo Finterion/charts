@@ -87,6 +87,16 @@ controls. Filters also update hover targets and inspector choices.
 Hover or focus a left-toolbar button for a description. **X axis placement**
 opens a modal popover to choose a time-based panel or the bottom of the chart;
 Apply confirms, while Cancel, Escape or an outside click leaves it unchanged.
+**Panel visibility** opens a multi-select checkbox window: check panels to show
+them, uncheck to collapse them, or use **Show all** / **Hide all**, then **Apply**.
+It uses the same collapse behavior as panel eye buttons and respects
+`collapsible=False`. Cancel, Escape and outside clicks discard pending changes.
+**Enter fullscreen** expands the current chart, toolbar and inspectors; Escape
+or **Exit fullscreen** restores the original size without resetting chart state.
+Both offline and URL-mode iframes delegate fullscreen permission, but an outer
+host such as VS Code or a browser policy can still deny it. In that case the
+chart shows an explicit error. Rerun the chart display after rebuilding the
+offline bundle; existing notebook outputs retain their old embedded JavaScript.
 The decision inspector starts with card
 selectors for the hovered/pinned UTC timestamp, the actual signal outcome and
 blocking reason, and the large actual-score readout with group capacity bars.

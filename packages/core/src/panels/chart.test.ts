@@ -3,7 +3,7 @@ import { createBuffer } from '../data/buffer';
 import { attachPanZoom } from '../interactions/panZoom';
 import { xCenter } from '../renderers/layout';
 import type { Viewport } from '../types';
-import type { Panel } from './panel';
+import { Panel } from './panel';
 import { Chart } from './chart';
 import { DecisionIndex } from './decisions';
 import type { DecisionAnnotation } from '../types';
@@ -122,6 +122,8 @@ describe('Chart pointer coordinates', () => {
     const chart = chartForHover(1000, { startIdx: 100, endIdx: 299 });
     chart['initialYScale'] = null;
     const panel = chart['panels'][0]!;
+    panel.spec.collapsible = true;
+    panel.collapsed = true;
     panel.yScale = 0.5;
     panel.manualYRange = [-3, -1];
     for (const value of chart['panels']) value.destroy = vi.fn();
@@ -141,9 +143,11 @@ describe('Chart pointer coordinates', () => {
       chart.setPanels([panel.spec]);
       expect(chart['panels'][0]!.yScale).toBe(0.5);
       expect(chart['panels'][0]!.manualYRange).toEqual([-3, -1]);
+      expect(chart['panels'][0]!.collapsed).toBe(true);
       chart.setPanels([{ id: 'new', kind: 'price', weight: 1 }]);
       expect(chart['panels'][0]!.manualYRange).toBeNull();
       expect(chart['panels'][0]!.yScale).toBe(1);
+      expect(chart['panels'][0]!.collapsed).toBe(false);
     } finally {
       vi.unstubAllGlobals();
     }
@@ -236,10 +240,13 @@ describe('Chart pointer coordinates', () => {
     textContent = '';
     type = '';
     checked = false;
+    disabled = false;
     open = false;
     id = '';
     getBoundingClientRect = () => ({ left: 0, right: 1000, top: 0, height: 600, bottom: 600 });
     focus = vi.fn();
+    remove = vi.fn();
+    requestFullscreen = vi.fn(async () => {});
     showModal = vi.fn(() => { this.open = true; });
     close = vi.fn(() => { this.open = false; this.listeners.get('close')?.(); });
     setAttribute(name: string, value: string) { this.attributes.set(name, value); }
@@ -260,13 +267,25 @@ describe('Chart pointer coordinates', () => {
 
     function controls() {
       const chart = chartForHover(1000, { startIdx: 0, endIdx: 999 });
-      const doc = { createElement: () => new ControlElement(), fullscreenElement: null, exitFullscreen: vi.fn() };
+      const doc = {
+        createElement: () => new ControlElement(),
+        fullscreenElement: null as ControlElement | null, fullscreenEnabled: true,
+        exitFullscreen: vi.fn(async () => {}),
+        addEventListener: vi.fn(), removeEventListener: vi.fn(),
+      };
       vi.stubGlobal('document', doc);
       vi.stubGlobal('window', { innerWidth: 1200, innerHeight: 800 });
       const toolbar = new ControlElement();
       const frame = new ControlElement();
       chart['chartControls'] = toolbar as unknown as HTMLDivElement;
       chart['frame'] = frame as unknown as HTMLDivElement;
+      chart['requestResize'] = vi.fn();
+      chart['panels'].forEach((panel, index) => {
+        panel.collapsed = false;
+        panel.hooks = chart['makePanelHooks'](index);
+        panel.legendEl = { dataset: {} } as HTMLDivElement;
+        panel.setCollapsed = Panel.prototype.setCollapsed;
+      });
       chart['hiddenDecisionTypes'] = new Set();
       chart['decisions'] = ([
         ['entry', 'long'], ['exit', 'long'], ['entry', 'short'], ['exit', 'short'], ['none', 'long'],
@@ -303,8 +322,10 @@ describe('Chart pointer coordinates', () => {
 
     it('filters each decision type consistently from rendering, hit testing and inspector choices', async () => {
       const { chart, toolbar, setDecisions } = controls();
-      expect(toolbar.children.map(c => c.attributes.get('aria-label'))).toEqual(['X axis placement', 'Compare points', 'Hide toolbar']);
-      expect(toolbar.children.map(c => c.attributes.get('aria-pressed'))).toEqual([undefined, 'false', undefined]);
+      expect(toolbar.children.map(c => c.attributes.get('aria-label'))).toEqual([
+        'X axis placement', 'Compare points', 'Panel visibility', 'Enter fullscreen', 'Hide toolbar',
+      ]);
+      expect(toolbar.children.map(c => c.attributes.get('aria-pressed'))).toEqual([undefined, 'false', undefined, 'false', undefined]);
       for (let i = 0; i < 5; i++) {
         chart['panels'][0]!.legendControls[i]!.onToggle();
         chart['syncDecisionLegend']();
@@ -413,7 +434,7 @@ describe('Chart pointer coordinates', () => {
       chart['timeAxisPanelId'] = 'lower';
       chart['comparisonTimes'] = [100, 200];
       const showButton = chart['showToolbarButton'] as unknown as ControlElement;
-      await toolbar.children[2]!.click();
+      await toolbar.children[4]!.click();
       expect(toolbar.style.display).toBe('none');
       expect(showButton.style.display).toBe('flex');
       expect(showButton.attributes.get('aria-expanded')).toBe('false');
@@ -421,7 +442,7 @@ describe('Chart pointer coordinates', () => {
       await showButton.click();
       expect(toolbar.style.display).toBe('flex');
       expect(showButton.style.display).toBe('none');
-      expect(toolbar.children[2]!.attributes.get('aria-expanded')).toBe('true');
+      expect(toolbar.children[4]!.attributes.get('aria-expanded')).toBe('true');
       expect(toolbar.children[0]!.focus).toHaveBeenCalledOnce();
       expect(chart['comparing']).toBe(true);
       expect(chart['timeAxisPanelId']).toBe('lower');
@@ -451,6 +472,90 @@ describe('Chart pointer coordinates', () => {
       expect(chart['decisionInspector'].container.style.display).toBe('flex');
       expect(chart['decisionInspector'].el.style.display).toBe('none');
       expect(chart['comparisonTimes']).toEqual([100, 200]);
+    });
+
+    it('applies multiple panel choices using the same eye-toggle hooks and restores focus', async () => {
+      const { chart, toolbar } = controls();
+      chart['panels'][0]!.spec.collapsible = true;
+      chart['applyTimeAxisVisibility'] = vi.fn();
+      chart['onPaneCollapseChange'] = vi.fn();
+      await toolbar.children[2]!.click();
+      const dialog = chart['panelVisibilityDialog'] as unknown as ControlElement;
+      expect(dialog.open).toBe(true);
+      expect(toolbar.children[2]!.attributes.get('aria-expanded')).toBe('true');
+      await dialog.children[2]!.children[1]!.click(); // Hide all (preview only).
+      expect(chart['panels'].map(p => p.collapsed)).toEqual([false, false]);
+      await dialog.children[4]!.children[1]!.click();
+      expect(chart['panels'].map(p => p.collapsed)).toEqual([true, true]);
+      expect(chart['onPaneCollapseChange']).toHaveBeenCalledTimes(2);
+      expect(chart['panels'][0]!.el.style.flex).toBe('0 0 28px');
+      expect(chart['markDirty']).toHaveBeenCalledWith('base', 'series');
+      expect(dialog.open).toBe(false);
+      expect(toolbar.children[2]!.focus).toHaveBeenCalledOnce();
+      await toolbar.children[2]!.click();
+      expect(dialog.children[3]!.children.map(row => row.children[0]!.checked)).toEqual([false, false]);
+      await dialog.children[2]!.children[0]!.click(); // Show all.
+      await dialog.children[4]!.children[1]!.click();
+      expect(chart['panels'].map(p => p.collapsed)).toEqual([false, false]);
+    });
+
+    it('respects non-collapsible panels and cancels visibility changes with Cancel or Escape', async () => {
+      const { chart, toolbar } = controls();
+      await toolbar.children[2]!.click();
+      const dialog = chart['panelVisibilityDialog'] as unknown as ControlElement;
+      const choices = dialog.children[3]!;
+      expect(choices.children[0]!.children[0]!.disabled).toBe(true);
+      expect(choices.children[0]!.children[1]!.textContent).toContain('always visible');
+      await dialog.children[2]!.children[1]!.click();
+      expect(choices.children[0]!.children[0]!.checked).toBe(true);
+      expect(choices.children[1]!.children[0]!.checked).toBe(false);
+      await dialog.children[4]!.children[0]!.click();
+      expect(chart['panels'].map(p => p.collapsed)).toEqual([false, false]);
+      await toolbar.children[2]!.click();
+      const escape = { key: 'Escape', preventDefault: vi.fn() };
+      dialog.dispatch('keydown', escape);
+      expect(dialog.open).toBe(false);
+      expect(chart['panels'].map(p => p.collapsed)).toEqual([false, false]);
+      expect(escape.preventDefault).toHaveBeenCalledOnce();
+    });
+
+    it('enters and exits browser fullscreen, including Escape synchronization and cleanup', async () => {
+      const { chart, toolbar, frame, doc } = controls();
+      await toolbar.children[3]!.click();
+      expect(frame.requestFullscreen).toHaveBeenCalledOnce();
+      doc.fullscreenElement = frame;
+      const changed = doc.addEventListener.mock.calls.find(([name]) => name === 'fullscreenchange')![1];
+      changed();
+      expect(toolbar.children[3]!.attributes.get('aria-label')).toBe('Exit fullscreen');
+      expect(toolbar.children[3]!.attributes.get('aria-pressed')).toBe('true');
+      await toolbar.children[3]!.click();
+      expect(doc.exitFullscreen).toHaveBeenCalledOnce();
+      doc.fullscreenElement = null; // Browser Escape also dispatches fullscreenchange.
+      changed();
+      expect(toolbar.children[3]!.attributes.get('aria-label')).toBe('Enter fullscreen');
+      expect(toolbar.children[3]!.attributes.get('aria-pressed')).toBe('false');
+      expect(chart['requestResize']).toHaveBeenCalledTimes(2);
+      chart['panels'].forEach(panel => { panel.destroy = vi.fn(); });
+      chart.destroy();
+      expect(doc.removeEventListener).toHaveBeenCalledWith('fullscreenchange', changed);
+      expect(frame.remove).toHaveBeenCalledOnce();
+    });
+
+    it('reports unsupported or denied fullscreen without losing chart state', async () => {
+      const { chart, toolbar, frame, doc } = controls();
+      doc.fullscreenEnabled = false;
+      await toolbar.children[3]!.click();
+      const status = chart['fullscreenStatus'] as unknown as ControlElement;
+      expect(status.style.display).toBe('block');
+      expect(status.textContent).toContain('blocked by the notebook host');
+      expect(frame.requestFullscreen).not.toHaveBeenCalled();
+      doc.fullscreenEnabled = true;
+      frame.requestFullscreen.mockRejectedValueOnce(new Error('Permission denied'));
+      await toolbar.children[3]!.click();
+      expect(status.textContent).toContain('Permission denied');
+      expect(chart.getViewport()).toEqual({ startIdx: 0, endIdx: 999 });
+      await toolbar.children[3]!.click();
+      expect(status.style.display).toBe('none');
     });
 
 

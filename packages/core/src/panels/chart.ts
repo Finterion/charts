@@ -72,6 +72,11 @@ export class Chart {
   private timeAxisPanelId: string | null = null;
   private timeAxisDialog!: HTMLDialogElement;
   private timeAxisButton!: HTMLButtonElement;
+  private panelVisibilityDialog!: HTMLDialogElement;
+  private panelVisibilityButton!: HTMLButtonElement;
+  private fullscreenButton!: HTMLButtonElement;
+  private fullscreenStatus!: HTMLDivElement;
+  private detachFullscreen: (() => void) | null = null;
   private toolTooltip!: HTMLDivElement;
   private viewport: Viewport = { startIdx: 0, endIdx: 0 };
   private hoverIdx = -1;
@@ -289,9 +294,10 @@ export class Chart {
 
   setPanels(panels: PanelSpec[]) {
     if (this.timeAxisDialog?.open) this.timeAxisDialog.close();
+    if (this.panelVisibilityDialog?.open) this.panelVisibilityDialog.close();
     this.hoverDecision = null;
     const zoomStates = new Map(this.panels.map(panel => [
-      panel.spec.id, { kind: panel.spec.kind, scale: panel.yScale, range: panel.manualYRange },
+      panel.spec.id, { kind: panel.spec.kind, scale: panel.yScale, range: panel.manualYRange, collapsed: panel.collapsed },
     ]));
     for (const p of this.panels) p.destroy();
     this.panels = panels.map((s, i) => {
@@ -302,6 +308,9 @@ export class Chart {
       // render, which would otherwise reset yScale back to 1).
       if (this.initialYScale !== null) panel.yScale = this.initialYScale;
       const zoom = zoomStates.get(s.id);
+      if (zoom?.kind === s.kind && (s.collapsible ?? i > 0)) {
+        panel.collapsed = zoom.collapsed;
+      }
       if (zoom?.kind === s.kind && this.initialYScale === null) {
         panel.yScale = zoom.scale;
         panel.manualYRange = zoom.range;
@@ -598,7 +607,7 @@ export class Chart {
     this.showToolbarButton.style.background = this.effectiveTheme.surface;
     this.showToolbarButton.style.color = this.effectiveTheme.text;
     this.showToolbarButton.style.borderColor = this.effectiveTheme.border;
-    for (const element of [this.toolTooltip, this.timeAxisDialog]) {
+    for (const element of [this.toolTooltip, this.timeAxisDialog, this.panelVisibilityDialog, this.fullscreenStatus]) {
       element.style.background = this.effectiveTheme.surface;
       element.style.color = this.effectiveTheme.text;
       element.style.borderColor = this.effectiveTheme.border;
@@ -667,6 +676,7 @@ export class Chart {
       .finterion-chart-axis-dialog label { display:flex;gap:10px;align-items:center;padding:8px 0;cursor:pointer;overflow-wrap:anywhere; }
       .finterion-chart-axis-dialog button { padding:7px 12px;border:1px solid currentColor;border-radius:5px;background:transparent;color:inherit;cursor:pointer; }
       .finterion-chart-axis-dialog :focus-visible { outline:2px solid currentColor;outline-offset:2px; }
+      .finterion-chart-frame:fullscreen { width:100vw !important;height:100vh !important; }
     `;
     this.frame.appendChild(style);
     const controlsId = ++nextControlsId;
@@ -682,7 +692,7 @@ export class Chart {
         button.removeAttribute('aria-describedby');
       };
       const show = () => {
-        if (button.disabled || this.timeAxisDialog?.open) return;
+        if (button.disabled || this.timeAxisDialog?.open || this.panelVisibilityDialog?.open) return;
         const bounds = button.getBoundingClientRect();
         const frame = this.frame.getBoundingClientRect();
         this.toolTooltip.textContent = description;
@@ -744,6 +754,53 @@ export class Chart {
       '<path d="M6 3v3m0 4v4m0 4v3M18 3v7m0 4v7M9 8h6m-6 8h6"/><circle cx="6" cy="8" r="2"/><circle cx="18" cy="12" r="2"/>',
       'Select timestamps and compare values across panels');
     this.compareButton.addEventListener('click', () => this.setComparing(!this.comparing));
+    this.panelVisibilityButton = tool('Panel visibility',
+      '<rect x="3" y="3" width="18" height="5" rx="1"/><rect x="3" y="10" width="18" height="5" rx="1"/><path d="M3 19h18"/>',
+      'Show or collapse multiple panels using a checklist. Changes apply together.');
+    this.panelVisibilityButton.removeAttribute('aria-pressed');
+    this.panelVisibilityButton.setAttribute('aria-haspopup', 'dialog');
+    this.panelVisibilityButton.setAttribute('aria-expanded', 'false');
+    this.panelVisibilityDialog = document.createElement('dialog');
+    this.panelVisibilityDialog.id = `finterion-panel-visibility-${controlsId}`;
+    this.panelVisibilityDialog.className = 'finterion-chart-axis-dialog';
+    this.panelVisibilityDialog.setAttribute('aria-label', 'Panel visibility');
+    this.panelVisibilityDialog.setAttribute('aria-modal', 'true');
+    this.panelVisibilityButton.setAttribute('aria-controls', this.panelVisibilityDialog.id);
+    this.frame.appendChild(this.panelVisibilityDialog);
+    this.panelVisibilityButton.addEventListener('click', () => this.openPanelVisibilityDialog());
+    this.panelVisibilityDialog.addEventListener('close', () => {
+      this.panelVisibilityButton.setAttribute('aria-expanded', 'false');
+      this.panelVisibilityButton.focus();
+    });
+    this.panelVisibilityDialog.addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        this.panelVisibilityDialog.close();
+      }
+    });
+    this.panelVisibilityDialog.addEventListener('click', e => {
+      if (e.target !== this.panelVisibilityDialog) return;
+      const bounds = this.panelVisibilityDialog.getBoundingClientRect();
+      if (e.clientX < bounds.left || e.clientX > bounds.right || e.clientY < bounds.top || e.clientY > bounds.bottom) {
+        this.panelVisibilityDialog.close();
+      }
+    });
+    this.fullscreenButton = tool('Enter fullscreen',
+      '<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/>',
+      'Toggle browser fullscreen for this chart. Press Escape to exit. Notebook hosts may restrict fullscreen.');
+    this.fullscreenButton.addEventListener('click', () => this.toggleFullscreen());
+    this.fullscreenStatus = document.createElement('div');
+    this.fullscreenStatus.setAttribute('role', 'status');
+    this.fullscreenStatus.style.cssText = 'display:none;position:absolute;z-index:50;top:8px;right:8px;max-width:320px;padding:10px;border:1px solid;border-radius:6px;font:12px/1.5 system-ui;';
+    this.frame.appendChild(this.fullscreenStatus);
+    const fullscreenChanged = () => {
+      const active = document.fullscreenElement === this.frame;
+      this.fullscreenButton.setAttribute('aria-pressed', String(active));
+      this.fullscreenButton.setAttribute('aria-label', active ? 'Exit fullscreen' : 'Enter fullscreen');
+      this.requestResize();
+    };
+    document.addEventListener('fullscreenchange', fullscreenChanged);
+    this.detachFullscreen = () => document.removeEventListener('fullscreenchange', fullscreenChanged);
     const hideButton = tool('Hide toolbar', '<path d="m14 6-6 6 6 6"/>', 'Hide the chart tools');
     hideButton.removeAttribute('aria-pressed');
     hideButton.setAttribute('aria-expanded', 'true');
@@ -777,6 +834,90 @@ export class Chart {
         : (index + (e.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
       buttons[next]!.focus();
     });
+  }
+
+  private async toggleFullscreen() {
+    this.fullscreenStatus.style.display = 'none';
+    try {
+      if (document.fullscreenElement === this.frame) {
+        await document.exitFullscreen();
+      } else {
+        if (!this.frame.requestFullscreen || document.fullscreenEnabled === false) {
+          throw new Error('Fullscreen is unavailable in this browser or blocked by the notebook host.');
+        }
+        await this.frame.requestFullscreen();
+      }
+    } catch (error) {
+      this.fullscreenStatus.textContent = `Unable to change fullscreen: ${error instanceof Error ? error.message : String(error)}`;
+      this.fullscreenStatus.style.display = 'block';
+    }
+  }
+
+  private openPanelVisibilityDialog() {
+    const dialog = this.panelVisibilityDialog;
+    dialog.replaceChildren();
+    const heading = document.createElement('h3');
+    heading.textContent = 'Panel visibility';
+    heading.style.margin = '0 0 8px';
+    const description = document.createElement('p');
+    description.textContent = 'Check panels to show them. Unchecked panels collapse to their title row, just like the eye button.';
+    description.id = `${dialog.id}-description`;
+    description.style.cssText = 'margin:0 0 12px;font-size:12px;line-height:1.5;';
+    dialog.setAttribute('aria-describedby', description.id);
+    const choices = document.createElement('div');
+    const inputs = new Map<Panel, HTMLInputElement>();
+    for (const panel of this.panels) {
+      const label = document.createElement('label');
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.checked = !panel.collapsed;
+      input.disabled = !(panel.hooks.canCollapse?.() ?? false);
+      const text = document.createElement('span');
+      text.textContent = `${panel.spec.title ?? panel.spec.id}${input.disabled ? ' (always visible)' : ''}`;
+      label.append(input, text);
+      choices.appendChild(label);
+      inputs.set(panel, input);
+    }
+    const presets = document.createElement('div');
+    presets.style.cssText = 'display:flex;gap:8px;margin-bottom:8px;';
+    for (const title of ['Show all', 'Hide all']) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = title;
+      button.addEventListener('click', () => {
+        for (const input of inputs.values()) {
+          if (!input.disabled) input.checked = title === 'Show all';
+        }
+      });
+      presets.appendChild(button);
+    }
+    const actions = document.createElement('div');
+    actions.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;margin-top:16px;';
+    for (const title of ['Cancel', 'Apply']) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = title;
+      button.addEventListener('click', () => {
+        if (title === 'Apply') {
+          for (const [panel, input] of inputs) {
+            if (!input.disabled) panel.setCollapsed(!input.checked);
+          }
+        }
+        dialog.close();
+      });
+      actions.appendChild(button);
+    }
+    dialog.append(heading, description, presets, choices, actions);
+    const bounds = this.panelVisibilityButton.getBoundingClientRect();
+    const width = Math.max(0, Math.min(360, window.innerWidth - 16));
+    Object.assign(dialog.style, {
+      position: 'fixed', margin: '0', width: `${width}px`, maxHeight: 'calc(100vh - 16px)',
+      left: `${Math.max(8, Math.min(bounds.right + 8, window.innerWidth - width - 8))}px`,
+      top: `${Math.max(8, Math.min(bounds.top, window.innerHeight - 440))}px`,
+    });
+    this.toolTooltip.style.display = 'none';
+    dialog.showModal();
+    this.panelVisibilityButton.setAttribute('aria-expanded', 'true');
   }
 
   private openTimeAxisDialog() {
@@ -997,6 +1138,7 @@ export class Chart {
 
   destroy() {
     this.detachPanZoom?.();
+    this.detachFullscreen?.();
     this.resizeObserver?.disconnect();
     for (const p of this.panels) p.destroy();
     this.frame.remove();
