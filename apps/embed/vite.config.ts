@@ -8,5 +8,6 @@ export default defineConfig({
     // Single self-contained bundle so static hosting works anywhere.
     target: 'es2020',
     cssCodeSplit: false,
+    rollupOptions: { output: { inlineDynamicImports: true } },
   },
 });

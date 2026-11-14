@@ -1,5 +1,6 @@
 import type { DecisionAnnotation, OHLCBuffer, PanelSpec, Viewport } from '../types';
 import { xCenter, yPos, type PanelLayout } from '../renderers/layout';
+import { createInspectorResizeHandle } from './inspectorResize';
 
 /** Accept contemporary Unix seconds and milliseconds without changing bar data. */
 export const epochMs = (time: number) => time < 1e12 ? time * 1000 : time;
@@ -219,10 +220,10 @@ export function renderDecisions(layout: PanelLayout, index: DecisionIndex, panel
 export class DecisionInspector {
   readonly container = document.createElement('div');
   readonly el = document.createElement('aside');
-  private resizeHandle = document.createElement('div');
+  private resizeHandle: HTMLDivElement;
+  private readonly updateResizeValues: () => void;
   private layoutToggle = document.createElement('button');
   private collapsed = false;
-  private drag: { pointerId: number; x: number; width: number } | undefined;
   private byTime = new Map<number, DecisionAnnotation[]>();
   private bucket: DecisionAnnotation[] = [];
   private selected: DecisionAnnotation | undefined;
@@ -263,50 +264,19 @@ export class DecisionInspector {
       this.onResize?.();
     });
     layoutControls.append(layoutLabel, this.layoutToggle);
+    const resize = createInspectorResizeHandle(this.container, {
+      label: 'Resize decision inspector',
+      defaultWidth: 'clamp(280px,38%,420px)',
+      bounds: () => {
+        const available = this.container.parentElement?.getBoundingClientRect().width;
+        const maximum = available ? Math.min(800, Math.floor(available * .65)) : 800;
+        return { minimum: Math.min(220, maximum), maximum };
+      },
+      onResize: this.onResize,
+    });
+    this.resizeHandle = resize.handle;
+    this.updateResizeValues = resize.updateValues;
     this.resizeHandle.className = 'inspector-resize-handle';
-    this.resizeHandle.tabIndex = 0;
-    this.resizeHandle.setAttribute('role', 'separator');
-    this.resizeHandle.setAttribute('aria-label', 'Resize decision inspector');
-    this.resizeHandle.setAttribute('aria-orientation', 'vertical');
-    this.resizeHandle.title = 'Drag to resize; Left/Right to adjust; double-click to reset';
-    this.resizeHandle.addEventListener('focus', () => this.updateResizeValues());
-    this.resizeHandle.addEventListener('pointerdown', e => {
-      if (e.button !== 0 || this.drag) return;
-      e.preventDefault();
-      this.drag = {
-        pointerId: e.pointerId, x: e.clientX,
-        width: this.container.getBoundingClientRect().width,
-      };
-      this.resizeHandle.setPointerCapture(e.pointerId);
-    });
-    this.resizeHandle.addEventListener('pointermove', e => {
-      if (this.drag?.pointerId !== e.pointerId) return;
-      e.preventDefault();
-      this.setWidth(this.drag.width + this.drag.x - e.clientX);
-    });
-    const endDrag = (e: PointerEvent) => {
-      if (this.drag?.pointerId !== e.pointerId) return;
-      this.drag = undefined;
-      if (this.resizeHandle.hasPointerCapture(e.pointerId)) {
-        this.resizeHandle.releasePointerCapture(e.pointerId);
-      }
-    };
-    this.resizeHandle.addEventListener('pointerup', endDrag);
-    this.resizeHandle.addEventListener('pointercancel', endDrag);
-    this.resizeHandle.addEventListener('lostpointercapture', () => { this.drag = undefined; });
-    this.resizeHandle.addEventListener('keydown', e => {
-      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
-      e.preventDefault();
-      const { minimum, maximum } = this.widthBounds();
-      const step = e.shiftKey ? 50 : 20;
-      this.setWidth(e.key === 'Home' ? minimum : e.key === 'End' ? maximum
-        : this.container.getBoundingClientRect().width + (e.key === 'ArrowLeft' ? step : -step));
-    });
-    this.resizeHandle.addEventListener('dblclick', () => {
-      this.container.style.width = 'clamp(280px,38%,420px)';
-      this.updateResizeValues();
-      this.onResize?.();
-    });
     this.container.append(layoutControls, this.el, this.resizeHandle);
     this.scoreSummary.setAttribute('aria-label', 'Confluence score');
     this.scoreSummary.className = 'inspector-body';
@@ -437,25 +407,6 @@ export class DecisionInspector {
     this.choices.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 12px;';
     this.heading.className = 'inspector-heading';
     this.controls.append(this.heading, this.choicesTitle, this.choices);
-  }
-  private widthBounds() {
-    const available = this.container.parentElement?.getBoundingClientRect().width;
-    const maximum = available ? Math.min(800, Math.floor(available * .65)) : 800;
-    return { minimum: Math.min(220, maximum), maximum };
-  }
-  private updateResizeValues() {
-    const { minimum, maximum } = this.widthBounds();
-    this.resizeHandle.setAttribute('aria-valuemin', String(minimum));
-    this.resizeHandle.setAttribute('aria-valuemax', String(maximum));
-    this.resizeHandle.setAttribute('aria-valuenow', String(Math.round(
-      Math.max(minimum, Math.min(maximum, this.container.getBoundingClientRect().width)),
-    )));
-  }
-  private setWidth(width: number) {
-    const { minimum, maximum } = this.widthBounds();
-    this.container.style.width = `${Math.max(minimum, Math.min(maximum, width))}px`;
-    this.updateResizeValues();
-    this.onResize?.();
   }
   setDecisions(decisions: DecisionAnnotation[]) {
     this.byTime.clear();

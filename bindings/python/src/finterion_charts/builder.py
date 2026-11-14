@@ -19,7 +19,7 @@ from typing import Any, Iterable, Literal, Mapping, Sequence, Union
 
 from .codec import encode_spec
 from .schema import SPEC_VERSION
-from .validator import validate_spec
+from .validator import _distribution_errors, validate_spec
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Type aliases & string-enums.
@@ -375,6 +375,7 @@ class Indicator:
     color_negative: str | None = None
     lower_values: ValuesRef | None = None
     ref_lines: Sequence[float] | None = None
+    ref_line_colors: Sequence[str] | None = field(default=None, kw_only=True)
     y_range: tuple[float, float] | None = None
     id: str | None = None
     label: str | None = None
@@ -400,6 +401,11 @@ class Indicator:
             d["lowerValues"] = _values_ref(self.lower_values)
         if self.ref_lines is not None:
             d["refLines"] = [float(v) for v in self.ref_lines]
+        if self.ref_line_colors is not None:
+            if (self.ref_lines is None or len(self.ref_line_colors) != len(self.ref_lines)
+                    or any(not isinstance(color, str) or not color for color in self.ref_line_colors)):
+                raise ValueError("ref_line_colors requires one color per reference line")
+            d["refLineColors"] = list(self.ref_line_colors)
         if self.y_range is not None:
             d["yRange"] = [float(self.y_range[0]), float(self.y_range[1])]
         if self.id is not None:
@@ -456,6 +462,7 @@ class Indicator:
         title: str | None = None,
         title_color: str | None = None,
         ref_lines: Sequence[float] | None = None,
+        ref_line_colors: Sequence[str] | None = None,
         y_range: tuple[float, float] | None = None,
         glow: str | None = None,
         color_negative: str | None = None,
@@ -480,6 +487,7 @@ class Indicator:
                 color_negative=color_negative,
                 lower_values=lower_values,
                 ref_lines=ref_lines,
+                ref_line_colors=ref_line_colors,
                 y_range=y_range,
                 label=label,
                 metric=metric,
@@ -495,12 +503,25 @@ class Indicator:
 
 
 @dataclass
+class IndicatorOutput:
+    id: str
+    label: str
+    values: ValuesRef
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"id": self.id, "label": self.label, "values": _values_ref(self.values)}
+
+
+@dataclass
 class _BasePanel:
     id: str
     weight: float
     title: str | None = None
     title_color: str | None = None
     collapsible: bool | None = field(default=None, kw_only=True)
+    outputs: list[IndicatorOutput] | None = field(default=None, kw_only=True)
+    output_source_time: ValuesRef | None = field(default=None, kw_only=True)
+    output_available_at: ValuesRef | None = field(default=None, kw_only=True)
 
     def _base(self, kind: str) -> dict[str, Any]:
         d: dict[str, Any] = {"id": self.id, "kind": kind, "weight": float(self.weight)}
@@ -510,6 +531,12 @@ class _BasePanel:
             d["titleColor"] = self.title_color
         if self.collapsible is not None:
             d["collapsible"] = self.collapsible
+        if self.outputs is not None:
+            d["outputs"] = [output.to_dict() for output in self.outputs]
+        if self.output_source_time is not None:
+            d["outputSourceTime"] = _values_ref(self.output_source_time)
+        if self.output_available_at is not None:
+            d["outputAvailableAt"] = _values_ref(self.output_available_at)
         return d
 
 
@@ -717,7 +744,65 @@ class Scatter(_BasePanel):
         return d
 
 
-Panel = Union[Price, IndicatorPanel, Heatmap, HBar, VBar, Histogram, Scatter]
+@dataclass
+class Donut(_BasePanel):
+    """Categorical non-negative totals; default center label is TRADES."""
+
+    categories: Sequence[str] = ()
+    values: NumericSeq = ()
+    colors: Sequence[str] | None = None
+    inner_radius: float | None = None
+    center_label: str | None = None
+    show_total: bool | None = None
+    format: FormatDirective | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        d = self._base("donut")
+        d["categories"] = list(self.categories)
+        d["values"] = _to_jsonable_floats(self.values, allow_null=False)
+        if self.colors is not None:
+            d["colors"] = list(self.colors)
+        if self.inner_radius is not None:
+            d["innerRadius"] = self.inner_radius
+        if self.center_label is not None:
+            d["centerLabel"] = self.center_label
+        if self.show_total is not None:
+            d["showTotal"] = self.show_total
+        if self.format is not None:
+            d["format"] = self.format
+        errors = _distribution_errors("donut", d)
+        if errors:
+            raise ValueError("Invalid donut: " + "; ".join(errors))
+        return d
+
+
+@dataclass
+class Boxplot(_BasePanel):
+    """Observed-order quartiles with min/max whiskers and optional jittered points."""
+
+    categories: Sequence[str] = ()
+    values: Sequence[NumericSeq] = ()
+    colors: Sequence[str] | None = None
+    show_points: bool | None = None
+    format: FormatDirective | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        d = self._base("boxplot")
+        d["categories"] = list(self.categories)
+        d["values"] = [_to_jsonable_floats(v, allow_null=False) for v in self.values]
+        if self.colors is not None:
+            d["colors"] = list(self.colors)
+        if self.show_points is not None:
+            d["showPoints"] = self.show_points
+        if self.format is not None:
+            d["format"] = self.format
+        errors = _distribution_errors("boxplot", d)
+        if errors:
+            raise ValueError("Invalid boxplot: " + "; ".join(errors))
+        return d
+
+
+Panel = Union[Price, IndicatorPanel, Heatmap, HBar, VBar, Histogram, Scatter, Donut, Boxplot]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1254,8 +1339,10 @@ class ChartSpec:
 
 
 __all__ = [
+    "Boxplot",
     "ChartSpec",
     "Display",
+    "Donut",
     "HBar",
     "Heatmap",
     "Histogram",

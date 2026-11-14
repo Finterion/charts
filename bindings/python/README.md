@@ -59,6 +59,38 @@ url = spec.embed_url()            # https://charts.finterion.com/embed/#spec=…
 See [`examples/aapl_supertrend.py`](examples/aapl_supertrend.py) for an end-to-end
 example with OHLC, RSI, SuperTrend overlay, and buy/sell markers.
 
+### Donut and box-plot charts
+
+Self-contained panels do not need OHLC bars:
+
+```python
+from finterion_charts import Boxplot, ChartSpec, Donut
+
+spec = (
+    ChartSpec(theme="finterion-light")
+    .add_panel(Donut(
+        id="assets", weight=1, title="Trades by asset",
+        categories=["BTC", "ETH"], values=[80, 30],
+        colors=["#f7931a", "#627eea"], center_label="TRADES",
+    ))
+    .add_panel(Boxplot(
+        id="returns", weight=1, title="Window returns",
+        categories=["Vector", "Event"],
+        values=[[0.10, -0.04, 0.08], [0.09, -0.03, 0.07]],
+        show_points=True, format="pct1",
+    ))
+).validate()
+```
+
+Donut values must be finite and non-negative. The optional `inner_radius`
+is strictly between 0 and 1 (default 0.55); `show_total=False` hides the total.
+Box plots use min/max whiskers and observed-order quartiles, not interpolated
+quartiles or outlier fences. `show_points=True` adds deterministic jittered
+observations. Empty and singleton distributions are supported. Both panels
+require one values entry and, when provided, one color per category.
+
+Rebuild the offline embed bundle before distributing these new panel types.
+
 ### Markers on indicator curves
 
 Target a price or indicator panel with `panel_id`. For indicator panels,

@@ -2,13 +2,13 @@
   {
     "name": "@finterion/charts-core (ESM)",
     "path": "packages/core/dist/index.js",
-    "limit": "35 KB",
+    "limit": "90 KB",
     "gzip": true
   },
   {
     "name": "@finterion/charts-react (ESM)",
     "path": "packages/react/dist/index.js",
-    "limit": "6 KB",
+    "limit": "6.5 KB",
     "gzip": true,
     "ignore": ["react", "react-dom", "@finterion/charts-core"]
   }

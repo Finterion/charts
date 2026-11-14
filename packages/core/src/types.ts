@@ -89,6 +89,8 @@ export interface IndicatorSeries {
   lowerValues?: Float32Array;
   /** Reference lines drawn on the panel (e.g. RSI 30/70). */
   refLines?: number[];
+  /** Optional colors in the same order as refLines. */
+  refLineColors?: string[];
   /** Fixed y-range; if omitted, autoscale to data. */
   yRange?: [number, number];
   /**
@@ -138,7 +140,33 @@ export type PanelKind =
   | 'hbar'
   | 'vbar'
   | 'histogram'
-  | 'scatter';
+  | 'scatter'
+  | 'donut'
+  | 'boxplot';
+
+/** Non-negative categorical totals, rendered as a ring with a legend. */
+export interface DonutData {
+  categories: string[];
+  values: number[];
+  colors?: string[];
+  /** Inner radius as a fraction of the outer radius, strictly between 0 and 1. Default: 0.55. */
+  innerRadius?: number;
+  /** Default: 'TRADES'. */
+  centerLabel?: string;
+  /** Default: true. */
+  showTotal?: boolean;
+  format?: (v: number) => string;
+}
+
+/** Categorical distributions with observed-order quantiles and min/max whiskers. */
+export interface BoxplotData {
+  categories: string[];
+  values: number[][];
+  colors?: string[];
+  /** Display observations with deterministic jitter. Default: false. */
+  showPoints?: boolean;
+  format?: (v: number) => string;
+}
 
 /** 2D grid of values (rows × cols), drawn as colored cells with optional cell labels. */
 export interface HeatmapData {
@@ -232,6 +260,13 @@ export interface ScatterData {
   yLabel?: string;
 }
 
+export interface IndicatorOutput {
+  id: string;
+  label: string;
+  /** Raw outputs aligned to the chart's OHLC timestamps; NaN means unavailable. */
+  values: Float32Array | Float64Array;
+}
+
 export interface PanelSpec {
   /** Stable id used for crosshair sync and updates. */
   id: string;
@@ -249,6 +284,11 @@ export interface PanelSpec {
   indicator?: IndicatorSeries;
   /** Optional secondary lines (e.g. EMA overlays on price). */
   overlays?: IndicatorSeries[];
+  /** Optional raw outputs for click-to-pin inspection, independent of plotted/hidden series. */
+  outputs?: IndicatorOutput[];
+  /** Source candle opening/closing times (milliseconds), aligned to the output readout's chart timestamps. */
+  outputSourceTime?: Float64Array;
+  outputAvailableAt?: Float64Array;
   /** Override the title color for this panel. Falls back to `ChartOptions.titleColor`, then theme. */
   titleColor?: string;
   /** For 'heatmap' panels. */
@@ -261,6 +301,8 @@ export interface PanelSpec {
   histogram?: HistogramData;
   /** For 'scatter' panels. */
   scatter?: ScatterData;
+  donut?: DonutData;
+  boxplot?: BoxplotData;
 }
 
 export interface DecisionRule {

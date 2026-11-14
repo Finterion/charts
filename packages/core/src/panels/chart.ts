@@ -8,6 +8,7 @@ import type { TitleStyle } from '../renderers/grid';
 import { computeTimeTicks, drawTimeAxis, resolveTimeFormatter } from '../renderers/grid';
 import type { GridStyle } from '../renderers/grid';
 import { ComparisonInspector, comparisonIndices } from './comparison';
+import { captureChartImage, copyChartImage } from './capture';
 
 let nextControlsId = 0;
 
@@ -68,6 +69,9 @@ export class Chart {
   private comparisonInspector: ComparisonInspector;
   private compareButton!: HTMLButtonElement;
   private comparing = false;
+  private outputInspection = false;
+  private outputButton!: HTMLButtonElement;
+  private pinnedOutput: { panelId: string; index: number } | null = null;
   private comparisonTimes: number[] = [];
   private timeAxisPanelId: string | null = null;
   private timeAxisDialog!: HTMLDialogElement;
@@ -75,7 +79,12 @@ export class Chart {
   private panelVisibilityDialog!: HTMLDialogElement;
   private panelVisibilityButton!: HTMLButtonElement;
   private fullscreenButton!: HTMLButtonElement;
+  private zoomOutButton!: HTMLButtonElement;
   private fullscreenStatus!: HTMLDivElement;
+  private captureButton!: HTMLButtonElement;
+  private captureDialog!: HTMLDialogElement;
+  private captureStatus!: HTMLDivElement;
+  private capturing = false;
   private detachFullscreen: (() => void) | null = null;
   private toolTooltip!: HTMLDivElement;
   private viewport: Viewport = { startIdx: 0, endIdx: 0 };
@@ -183,7 +192,7 @@ export class Chart {
     this.chartScrollContainer.tabIndex = 0;
     this.chartScrollContainer.style.cssText = 'flex:1 1 0;min-width:0;min-height:0;overflow-y:auto;overscroll-behavior-y:contain;';
     this.decisionInspector = new DecisionInspector(() => this.requestResize());
-    this.comparisonInspector = new ComparisonInspector();
+    this.comparisonInspector = new ComparisonInspector(() => this.requestResize());
     container.appendChild(this.frame);
     this.frame.append(this.chartScrollContainer, this.decisionInspector.container, this.comparisonInspector.el);
     this.chartScrollContainer.appendChild(this.root);
@@ -233,6 +242,7 @@ export class Chart {
     if (options.interactive === false) {
       this.interactive = false;
       this.compareButton.disabled = true;
+      this.zoomOutButton.disabled = true;
       this.eventSurface.style.cursor = 'default';
     }
     if (options.timeFormat !== undefined) {
@@ -245,8 +255,10 @@ export class Chart {
 
   setData(buf: OHLCBuffer) {
     this.hoverDecision = null;
+    this.pinnedOutput = null;
     const wasFollowing = this.viewport.endIdx >= (this.buf?.length ?? 1) - 1;
     this.buf = buf;
+    this.zoomOutButton.disabled = !this.interactive || !buf.length;
     const indices = comparisonIndices(buf, this.comparisonTimes);
     this.comparisonTimes = this.comparisonTimes.filter((_, i) => indices[i] !== -1);
     this.renderComparison();
@@ -295,6 +307,7 @@ export class Chart {
   setPanels(panels: PanelSpec[]) {
     if (this.timeAxisDialog?.open) this.timeAxisDialog.close();
     if (this.panelVisibilityDialog?.open) this.panelVisibilityDialog.close();
+    if (this.captureDialog?.open) this.captureDialog.close();
     this.hoverDecision = null;
     const zoomStates = new Map(this.panels.map(panel => [
       panel.spec.id, { kind: panel.spec.kind, scale: panel.yScale, range: panel.manualYRange, collapsed: panel.collapsed },
@@ -317,7 +330,13 @@ export class Chart {
       }
       return panel;
     });
-    for (const p of this.panels) this.panelsContainer.appendChild(p.el);
+    if (this.captureButton) this.captureButton.disabled = !this.panels.length || this.capturing;
+    const pinnedPanelId = this.pinnedOutput?.panelId;
+    if (pinnedPanelId && !panels.some(panel => panel.id === pinnedPanelId)) this.pinnedOutput = null;
+    for (const p of this.panels) {
+      this.panelsContainer.appendChild(p.el);
+      this.panelsContainer.appendChild(p.outputsEl);
+    }
     this.placeTimeAxis();
     // Move event surface + axes to top within panelsContainer.
     this.panelsContainer.appendChild(this.eventSurface);
@@ -607,7 +626,7 @@ export class Chart {
     this.showToolbarButton.style.background = this.effectiveTheme.surface;
     this.showToolbarButton.style.color = this.effectiveTheme.text;
     this.showToolbarButton.style.borderColor = this.effectiveTheme.border;
-    for (const element of [this.toolTooltip, this.timeAxisDialog, this.panelVisibilityDialog, this.fullscreenStatus]) {
+    for (const element of [this.toolTooltip, this.timeAxisDialog, this.panelVisibilityDialog, this.fullscreenStatus, this.captureStatus, this.captureDialog]) {
       element.style.background = this.effectiveTheme.surface;
       element.style.color = this.effectiveTheme.text;
       element.style.borderColor = this.effectiveTheme.border;
@@ -692,7 +711,7 @@ export class Chart {
         button.removeAttribute('aria-describedby');
       };
       const show = () => {
-        if (button.disabled || this.timeAxisDialog?.open || this.panelVisibilityDialog?.open) return;
+        if (button.disabled || this.timeAxisDialog?.open || this.panelVisibilityDialog?.open || this.captureDialog?.open) return;
         const bounds = button.getBoundingClientRect();
         const frame = this.frame.getBoundingClientRect();
         this.toolTooltip.textContent = description;
@@ -801,6 +820,52 @@ export class Chart {
     };
     document.addEventListener('fullscreenchange', fullscreenChanged);
     this.detachFullscreen = () => document.removeEventListener('fullscreenchange', fullscreenChanged);
+    this.zoomOutButton = tool('Zoom out to all data',
+      '<circle cx="10" cy="10" r="6"/><path d="M7 10h6m1.5 4.5L21 21"/>',
+      'Show all loaded history across every panel and reset their vertical zoom to fit the data.');
+    this.zoomOutButton.removeAttribute('aria-pressed');
+    this.zoomOutButton.disabled = !this.interactive || !this.buf?.length;
+    this.zoomOutButton.addEventListener('click', () => this.zoomOutToAllData());
+    this.outputButton = tool('Indicator outputs',
+      '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 9v11m4-7h5m-5 4h5"/>',
+      'Click an indicator candle to pin all outputs beside its panel title. Click again to update; scroll the readout for more values. Turn off to clear.');
+    this.outputButton.addEventListener('click', () => this.setOutputInspection(!this.outputInspection));
+    this.captureButton = tool('Capture chart',
+      '<path d="M8 5 9.5 3h5L16 5h4a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/><circle cx="12" cy="12" r="4"/>',
+      'Choose Copy image or Download PNG for the displayed chart area, including titles, axes, legends and markers. The toolbar and inspectors are excluded.');
+    this.captureButton.removeAttribute('aria-pressed');
+    this.captureButton.disabled = !this.panels.length;
+    this.captureButton.setAttribute('aria-haspopup', 'dialog');
+    this.captureButton.setAttribute('aria-expanded', 'false');
+    this.captureDialog = document.createElement('dialog');
+    this.captureDialog.id = `finterion-capture-${controlsId}`;
+    this.captureDialog.className = 'finterion-chart-axis-dialog';
+    this.captureDialog.setAttribute('aria-label', 'Capture chart');
+    this.captureDialog.setAttribute('aria-modal', 'true');
+    this.captureButton.setAttribute('aria-controls', this.captureDialog.id);
+    this.frame.appendChild(this.captureDialog);
+    this.captureButton.addEventListener('click', () => this.openCaptureDialog());
+    this.captureDialog.addEventListener('close', () => {
+      this.captureButton.setAttribute('aria-expanded', 'false');
+      this.captureButton.focus();
+    });
+    this.captureDialog.addEventListener('keydown', event => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        this.captureDialog.close();
+      }
+    });
+    this.captureDialog.addEventListener('click', event => {
+      if (event.target !== this.captureDialog) return;
+      const bounds = this.captureDialog.getBoundingClientRect();
+      if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) {
+        this.captureDialog.close();
+      }
+    });
+    this.captureStatus = document.createElement('div');
+    this.captureStatus.setAttribute('role', 'status');
+    this.captureStatus.style.cssText = this.fullscreenStatus.style.cssText;
+    this.frame.appendChild(this.captureStatus);
     const hideButton = tool('Hide toolbar', '<path d="m14 6-6 6 6 6"/>', 'Hide the chart tools');
     hideButton.removeAttribute('aria-pressed');
     hideButton.setAttribute('aria-expanded', 'true');
@@ -850,6 +915,97 @@ export class Chart {
     } catch (error) {
       this.fullscreenStatus.textContent = `Unable to change fullscreen: ${error instanceof Error ? error.message : String(error)}`;
       this.fullscreenStatus.style.display = 'block';
+    }
+  }
+
+  /** Capture the current chart viewport as a PNG, excluding tools and inspectors. */
+  async captureImage(): Promise<Blob> {
+    if (!this.panels.length) throw new Error('Add chart panels before capturing.');
+    this.draw();
+    return captureChartImage(this.chartScrollContainer, this.effectiveTheme.bg, this.dpr);
+  }
+
+  /** Copy a PNG to the clipboard without starting a download. Requires browser permission. */
+  copyImage(): Promise<void> {
+    return copyChartImage(() => this.captureImage());
+  }
+
+  private openCaptureDialog() {
+    const dialog = this.captureDialog;
+    if (dialog.open || this.capturing) return;
+    dialog.replaceChildren();
+    const heading = document.createElement('h3');
+    heading.textContent = 'Capture chart';
+    heading.style.margin = '0 0 8px';
+    const description = document.createElement('p');
+    description.id = `${dialog.id}-description`;
+    description.textContent = 'Copy the image to paste elsewhere, or download a PNG file. Nothing is downloaded when you copy. Your browser may ask for clipboard permission.';
+    description.style.cssText = 'margin:0 0 12px;font-size:12px;line-height:1.5;';
+    dialog.setAttribute('aria-describedby', description.id);
+    const actions = document.createElement('div');
+    actions.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;';
+    for (const [label, destination] of [
+      ['Copy image', 'clipboard'], ['Download PNG', 'download'], ['Cancel', null],
+    ] as const) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = label;
+      button.addEventListener('click', () => {
+        dialog.close();
+        if (destination) return this.exportCapture(destination);
+      });
+      actions.appendChild(button);
+    }
+    dialog.append(heading, description, actions);
+    const bounds = this.captureButton.getBoundingClientRect();
+    const width = Math.max(0, Math.min(360, window.innerWidth - 16));
+    Object.assign(dialog.style, {
+      position: 'fixed', margin: '0', width: `${width}px`, maxHeight: 'calc(100vh - 16px)',
+      left: `${Math.max(8, Math.min(bounds.right + 8, window.innerWidth - width - 8))}px`,
+      top: `${Math.max(8, Math.min(bounds.top, window.innerHeight - 260))}px`,
+    });
+    this.toolTooltip.style.display = 'none';
+    dialog.showModal();
+    this.captureButton.setAttribute('aria-expanded', 'true');
+  }
+
+  private async exportCapture(destination: 'clipboard' | 'download') {
+    if (this.capturing) return;
+    this.capturing = true;
+    this.captureButton.disabled = true;
+    this.captureButton.setAttribute('aria-busy', 'true');
+    this.captureStatus.setAttribute('role', 'status');
+    this.captureStatus.textContent = destination === 'clipboard' ? 'Copying chart image...' : 'Capturing chart...';
+    this.captureStatus.style.display = 'block';
+    try {
+      if (destination === 'clipboard') {
+        await this.copyImage();
+        this.captureStatus.textContent = 'Chart image copied to clipboard. Paste it into an app that accepts images.';
+        return;
+      }
+      const image = await this.captureImage();
+      const url = URL.createObjectURL(image);
+      let link: HTMLAnchorElement | undefined;
+      try {
+        link = document.createElement('a');
+        link.href = url;
+        link.download = 'finterion-chart.png';
+        link.style.display = 'none';
+        this.frame.appendChild(link);
+        link.click();
+        this.captureStatus.textContent = 'Chart PNG download requested. Your browser or notebook host may ask for permission.';
+      } finally {
+        link?.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+    } catch (error) {
+      this.captureStatus.setAttribute('role', 'alert');
+      this.captureStatus.textContent = `${destination === 'clipboard' ? 'Unable to copy chart image' : 'Unable to capture chart'}: ${error instanceof Error ? error.message : String(error)}`;
+    } finally {
+      this.captureStatus.style.display = 'block';
+      this.capturing = false;
+      this.captureButton.disabled = !this.panels.length;
+      this.captureButton.removeAttribute('aria-busy');
     }
   }
 
@@ -984,6 +1140,7 @@ export class Chart {
   }
 
   private setComparing(active: boolean) {
+    if (active && this.outputInspection) this.setOutputInspection(false);
     this.comparing = active;
     this.compareButton.setAttribute('aria-pressed', String(active));
     this.hoverDecision = null;
@@ -1125,6 +1282,41 @@ export class Chart {
     return this.viewport;
   }
 
+  /** Enable click-to-pin output readouts. Comparison and output inspection are mutually exclusive. */
+  setOutputInspection(active: boolean) {
+    if (active && this.comparing) this.setComparing(false);
+    this.outputInspection = active;
+    this.pinnedOutput = null;
+    this.outputButton.setAttribute('aria-pressed', String(active));
+    this.markDirty('overlay');
+  }
+
+  private pinOutputs(e: Pick<MouseEvent, 'clientX' | 'clientY'>) {
+    if (!this.buf?.length) return;
+    const panel = this.panelAtPoint(e);
+    if (!panel) return;
+    const rect = panel.el.getBoundingClientRect();
+    const span = this.viewport.endIdx - this.viewport.startIdx + 1;
+    const index = Math.floor(this.viewport.startIdx + (e.clientX - rect.left) / rect.width * span);
+    if (index < 0 || index >= this.buf.length) return;
+    this.pinnedOutput = { panelId: panel.spec.id, index };
+    this.markDirty('overlay');
+  }
+
+  private resetYZoom() {
+    for (const panel of this.panels) {
+      panel.yScale = 1;
+      panel.manualYRange = null;
+    }
+    this.initialYScale = null;
+  }
+
+  private zoomOutToAllData() {
+    if (!this.interactive || !this.buf?.length) return;
+    this.resetYZoom();
+    this.setViewport({ startIdx: 0, endIdx: this.buf.length - 1 });
+  }
+
   /**
    * Swap the time-axis label formatter at runtime. Pass a format string
    * (`'MMM YYYY'`, `'duration'`, ...), a callback, or `undefined` to revert
@@ -1155,7 +1347,7 @@ export class Chart {
         getWidth: () => this.panelsContainer.getBoundingClientRect().width,
         requireZoomModifier: () => this.chartScrollContainer.scrollHeight > this.chartScrollContainer.clientHeight,
         wheelTarget: this.chartScrollContainer,
-        canStartPan: e => !this.comparing && !this.findDecisionHit(e),
+        canStartPan: e => !this.comparing && (this.outputInspection || !this.findDecisionHit(e)),
         getBoxZoomRegion: e => {
           if (this.comparing) return null;
           const panel = this.panelAtPoint(e);
@@ -1206,6 +1398,10 @@ export class Chart {
         this.toggleComparisonPoint(e);
         return;
       }
+      if (this.outputInspection) {
+        this.pinOutputs(e);
+        return;
+      }
       this.onMove(e as PointerEvent);
       if (this.hoverDecision) {
         this.selectedDecision = this.hoverDecision;
@@ -1241,13 +1437,7 @@ export class Chart {
         this.markDirty('base', 'series', 'overlay');
       }, { passive: false });
       this.rightAxis.addEventListener('dblclick', () => {
-        for (const p of this.panels) {
-          p.yScale = 1;
-          p.manualYRange = null;
-        }
-        // User explicitly reset the Y-axis — forget the initial padding
-        // factor so subsequent panel re-mounts don't re-inflate the range.
-        this.initialYScale = null;
+        this.resetYZoom();
         this.markDirty('base', 'series');
       });
       this.bottomAxis.addEventListener('dblclick', () => {
@@ -1371,7 +1561,7 @@ export class Chart {
       const acc = this.panelTop(i);
       if (y >= acc && y <= acc + h) { this.hoverPanel = i; break; }
     }
-    this.hoverDecision = e.buttons || this.comparing ? null : this.findDecisionHit(e);
+    this.hoverDecision = e.buttons || this.comparing || this.outputInspection ? null : this.findDecisionHit(e);
     if (this.hoverDecision) {
       const { bar, decision, panel } = this.hoverDecision;
       const p = this.panels[panel]!;
@@ -1466,6 +1656,13 @@ export class Chart {
     if (this.dirty.overlay || this.dirty.series) {
       for (let i = 0; i < this.panels.length; i++) {
         const p = this.panels[i]!;
+        const pinned = this.outputInspection && this.pinnedOutput?.panelId === p.spec.id ? this.pinnedOutput : null;
+        const time = pinned && this.buf ? this.buf.time[pinned.index] : undefined;
+        const date = time === undefined ? null : new Date(time < 1e12 ? time * 1000 : time);
+        p.syncPinnedOutputs(this.effectiveTheme, pinned?.index ?? -1,
+          time === undefined ? '' : this.timeFormatter?.(time)
+            ?? (date && Number.isFinite(date.getTime()) ? date.toISOString() : String(time)),
+          this.titleStyle, this.legendPosition !== 'overlay');
         if (p.collapsed) {
           p.overlayCtx.clearRect(0, 0, p.width, p.height);
           continue;
@@ -1493,7 +1690,7 @@ export class Chart {
           });
           ctx.restore();
         }
-        p.drawHoverValues(this.effectiveTheme, this.hoverIdx, this.titleStyle, this.legendPosition !== 'overlay');
+        if (!pinned) p.drawHoverValues(this.effectiveTheme, this.hoverIdx, this.titleStyle, this.legendPosition !== 'overlay');
         const hit = this.selectedDecision ?? this.hoverDecision;
         if (hit?.panel === i && hit.bar >= this.viewport.startIdx && hit.bar <= this.viewport.endIdx) {
           const ctx = p.overlayCtx;

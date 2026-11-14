@@ -1,5 +1,12 @@
 # @finterion/charts-react
 
+## 1.5.0
+
+### Minor Changes
+
+- Support the new distribution panels, indicator outputs, and chart controls through the updated core and spec packages.
+- Update @finterion/charts-core and @finterion/charts-spec to 1.5.0.
+
 ## 1.4.1
 
 ### Patch Changes

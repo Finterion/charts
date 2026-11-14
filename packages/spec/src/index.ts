@@ -17,8 +17,10 @@ export { validateCanvasSpec, type ChartCanvasSpec } from './canvas';
 
 import type {
   BrandingOptions,
+  BoxplotData,
   ChartOptions,
   DecisionAnnotation,
+  DonutData,
   HBarData,
   HeatmapData,
   HistogramData,
@@ -34,7 +36,7 @@ import type {
   TradeMarker,
   VBarData,
 } from '@finterion/charts-core';
-import { validateDecisions } from '@finterion/charts-core';
+import { validateDecisions, validateDistributionData } from '@finterion/charts-core';
 import type { ChartCanvasSpec } from './canvas';
 
 // Re-export so consumers can `import type { LineStyle } from '@finterion/charts-spec'`.
@@ -137,7 +139,29 @@ export type PanelSpecSpec =
   | HBarPanelSpec
   | VBarPanelSpec
   | HistogramPanelSpec
-  | ScatterPanelSpec;
+  | ScatterPanelSpec
+  | DonutPanelSpec
+  | BoxplotPanelSpec;
+
+export interface DonutPanelSpec extends BasePanelSpec {
+  kind: 'donut';
+  categories: string[];
+  values: number[];
+  colors?: string[];
+  innerRadius?: number;
+  centerLabel?: string;
+  showTotal?: boolean;
+  format?: FormatDirective;
+}
+
+export interface BoxplotPanelSpec extends BasePanelSpec {
+  kind: 'boxplot';
+  categories: string[];
+  values: number[][];
+  colors?: string[];
+  showPoints?: boolean;
+  format?: FormatDirective;
+}
 
 export interface BasePanelSpec {
   id: string;
@@ -145,6 +169,9 @@ export interface BasePanelSpec {
   title?: string;
   titleColor?: string;
   collapsible?: boolean;
+  outputs?: { id: string; label: string; values: IndicatorSeriesSpec['values'] }[];
+  outputSourceTime?: IndicatorSeriesSpec['values'];
+  outputAvailableAt?: IndicatorSeriesSpec['values'];
 }
 
 export interface PricePanelSpec extends BasePanelSpec {
@@ -178,6 +205,7 @@ export interface IndicatorSeriesSpec {
   /** For `kind: 'band'` only. Same shape as `values`. */
   lowerValues?: (number | null)[] | { column: string };
   refLines?: number[];
+  refLineColors?: string[];
   yRange?: [number, number];
   /** Stable id surfaced in the visibility-change callback. */
   id?: string;
@@ -297,7 +325,7 @@ export interface ValidationResult {
   errors: string[];
 }
 
-const PANEL_KINDS: PanelKind[] = ['price', 'indicator', 'heatmap', 'hbar', 'vbar', 'histogram', 'scatter'];
+const PANEL_KINDS: PanelKind[] = ['price', 'indicator', 'heatmap', 'hbar', 'vbar', 'histogram', 'scatter', 'donut', 'boxplot'];
 
 export function validateSpec(spec: unknown): ValidationResult {
   const errors: string[] = [];
@@ -326,6 +354,14 @@ export function validateSpec(spec: unknown): ValidationResult {
     if (!PANEL_KINDS.includes(p.kind)) push(`panels[${i}].kind "${String(p.kind)}" is invalid`);
     if (typeof p.weight !== 'number' || p.weight <= 0) push(`panels[${i}].weight must be a positive number`);
     if (p.collapsible !== undefined && typeof p.collapsible !== 'boolean') push(`panels[${i}].collapsible must be a boolean`);
+    if (p.kind === 'donut' || p.kind === 'boxplot') {
+      errors.push(...validateDistributionData(p.kind, p).map(error => `panels[${i}].${error}`));
+      if (p.format !== undefined && (
+        typeof p.format !== 'string' || !Object.prototype.hasOwnProperty.call(FORMATTERS, p.format)
+      )) {
+        push(`panels[${i}].format is invalid`);
+      }
+    }
   });
 
   const hasTimePanel = s.panels.some((p) => p?.kind === 'price' || p?.kind === 'indicator');
@@ -449,6 +485,13 @@ function compileIndicator(s: IndicatorSeriesSpec, columns: Record<string, (numbe
   if (s.colorNegative !== undefined) out.colorNegative = s.colorNegative;
   if (s.lowerValues !== undefined) out.lowerValues = resolveValues(s.lowerValues, columns);
   if (s.refLines !== undefined) out.refLines = s.refLines;
+  if (s.refLineColors !== undefined) {
+    if (!s.refLines || s.refLineColors.length !== s.refLines.length
+      || s.refLineColors.some(color => typeof color !== 'string' || !color)) {
+      throw new Error('refLineColors requires one color per reference line');
+    }
+    out.refLineColors = s.refLineColors;
+  }
   if (s.yRange !== undefined) out.yRange = s.yRange;
   if (s.id !== undefined) out.id = s.id;
   if (s.label !== undefined) out.label = s.label;
@@ -457,6 +500,12 @@ function compileIndicator(s: IndicatorSeriesSpec, columns: Record<string, (numbe
   if (s.showHoverValue !== undefined) out.showHoverValue = s.showHoverValue;
   if (s.hidden !== undefined) out.hidden = s.hidden;
   return out;
+}
+
+function resolvePreciseValues(values: IndicatorSeriesSpec['values'], columns: Record<string, (number | null)[]>): Float64Array {
+  const source = Array.isArray(values) ? values : columns[values.column];
+  if (!source) throw new Error(`Unknown output column reference: "${Array.isArray(values) ? 'inline values' : values.column}"`);
+  return Float64Array.from(source, value => value === null ? NaN : value);
 }
 
 function compilePanel(p: PanelSpecSpec, columns: Record<string, (number | null)[]>): PanelSpec {
@@ -468,8 +517,33 @@ function compilePanel(p: PanelSpecSpec, columns: Record<string, (number | null)[
   if (p.title !== undefined) base.title = p.title;
   if (p.titleColor !== undefined) base.titleColor = p.titleColor;
   if (p.collapsible !== undefined) base.collapsible = p.collapsible;
+  if (p.outputs) base.outputs = p.outputs.map(output => ({
+    id: output.id, label: output.label, values: resolvePreciseValues(output.values, columns),
+  }));
+  if (p.outputSourceTime !== undefined) base.outputSourceTime = resolvePreciseValues(p.outputSourceTime, columns);
+  if (p.outputAvailableAt !== undefined) base.outputAvailableAt = resolvePreciseValues(p.outputAvailableAt, columns);
 
   switch (p.kind) {
+    case 'donut': {
+      const d: DonutData = { categories: p.categories, values: p.values };
+      if (p.colors !== undefined) d.colors = p.colors;
+      if (p.innerRadius !== undefined) d.innerRadius = p.innerRadius;
+      if (p.centerLabel !== undefined) d.centerLabel = p.centerLabel;
+      if (p.showTotal !== undefined) d.showTotal = p.showTotal;
+      const f = fmt(p.format);
+      if (f) d.format = f;
+      base.donut = d;
+      return base;
+    }
+    case 'boxplot': {
+      const d: BoxplotData = { categories: p.categories, values: p.values };
+      if (p.colors !== undefined) d.colors = p.colors;
+      if (p.showPoints !== undefined) d.showPoints = p.showPoints;
+      const f = fmt(p.format);
+      if (f) d.format = f;
+      base.boxplot = d;
+      return base;
+    }
     case 'price': {
       if (p.type !== undefined) base.type = p.type;
       if (p.overlays) base.overlays = p.overlays.map((o) => compileIndicator(o, columns));

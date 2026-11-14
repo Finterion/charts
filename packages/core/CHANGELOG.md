@@ -1,5 +1,13 @@
 # @finterion/charts-core
 
+## 1.5.0
+
+### Minor Changes
+
+- Add donut and boxplot panels, colored indicator reference lines, and pinned indicator output inspection.
+- Add PNG capture and clipboard copying, zoom-to-all-data, and a resizable comparison inspector.
+- Include panel visibility and fullscreen controls introduced since 1.4.1.
+
 ## 1.4.1
 
 ### Patch Changes

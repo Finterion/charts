@@ -10,6 +10,9 @@ import { renderHBar } from '../renderers/hbar';
 import { renderVBar } from '../renderers/vbar';
 import { renderValueHistogram } from '../renderers/histogramValue';
 import { renderScatter } from '../renderers/scatter';
+import { renderDonut } from '../renderers/donut';
+import { renderBoxplot } from '../renderers/boxplot';
+import { assertDistributionData } from '../data/distributions';
 import type { PanelLayout } from '../renderers/layout';
 import { pad } from '../renderers/layout';
 
@@ -39,6 +42,7 @@ export class Panel {
   overlay: HTMLCanvasElement;
   legendEl: HTMLDivElement;
   collapseEl: HTMLDivElement;
+  outputsEl: HTMLDivElement;
   baseCtx: CanvasRenderingContext2D;
   seriesCtx: CanvasRenderingContext2D;
   overlayCtx: CanvasRenderingContext2D;
@@ -60,6 +64,9 @@ export class Panel {
   }[] = [];
 
   constructor(spec: PanelSpec) {
+    if (spec.kind === 'donut' || spec.kind === 'boxplot') {
+      assertDistributionData(spec.kind, spec[spec.kind]);
+    }
     this.spec = spec;
     this.el = document.createElement('div');
     this.el.style.cssText = 'position:relative;flex:' + spec.weight + ' 1 0;min-height:0;';
@@ -72,6 +79,9 @@ export class Panel {
     // panelsContainer in setPanels().
     this.legendEl = mkLegend();
     this.collapseEl = mkLegend();
+    this.outputsEl = document.createElement('div');
+    this.outputsEl.className = 'finterion-panel-outputs';
+    this.outputsEl.style.display = 'none';
     this.el.appendChild(this.base);
     this.el.appendChild(this.series);
     this.el.appendChild(this.overlay);
@@ -110,12 +120,25 @@ export class Panel {
       if (this.spec.indicator.yRange) {
         [this.yMin, this.yMax] = this.spec.indicator.yRange;
       } else {
-        const [lo, hi] = indicatorExtrema(
-          this.spec.indicator.values,
-          viewport.startIdx,
-          viewport.endIdx,
-          this.spec.indicator.lowerValues,
-        );
+        let lo = Infinity;
+        let hi = -Infinity;
+        const allSeries = [this.spec.indicator, ...(this.spec.overlays ?? [])];
+        const sampled = allSeries.some(series => series.sampleMask !== undefined);
+        for (const series of sampled ? allSeries : [this.spec.indicator]) {
+          if (sampled && series.hidden) continue;
+          const [min, max] = indicatorExtrema(
+            series.values, viewport.startIdx, viewport.endIdx, series.lowerValues,
+            series.kind === 'line' ? series.sampleMask : undefined,
+          );
+          lo = Math.min(lo, min);
+          hi = Math.max(hi, max);
+          for (const reference of series.refLines ?? []) {
+            if (!Number.isFinite(reference)) continue;
+            lo = Math.min(lo, reference);
+            hi = Math.max(hi, reference);
+          }
+        }
+        if (!Number.isFinite(lo)) [lo, hi] = [0, 1];
         [this.yMin, this.yMax] = pad(lo, hi, 0.1);
       }
     }
@@ -181,6 +204,10 @@ export class Panel {
       renderValueHistogram(ctx, this.width, dataHeight, this.spec.histogram, theme);
     } else if (this.spec.kind === 'scatter' && this.spec.scatter) {
       renderScatter(ctx, this.width, dataHeight, this.spec.scatter, theme);
+    } else if (this.spec.kind === 'donut' && this.spec.donut) {
+      renderDonut(ctx, this.width, dataHeight, this.spec.donut, theme);
+    } else if (this.spec.kind === 'boxplot' && this.spec.boxplot) {
+      renderBoxplot(ctx, this.width, dataHeight, this.spec.boxplot, theme);
     }
     ctx.restore();
   }
@@ -246,6 +273,67 @@ export class Panel {
       }
     }
     ctx.restore();
+  }
+
+  syncPinnedOutputs(theme: ThemeTokens, index: number, timestamp: string, titleStyle: TitleStyle = {}, externalLegend = false) {
+    if (this.collapsed || !isTimePanel(this.spec.kind) || index < 0) {
+      this.outputsEl.style.display = 'none';
+      return;
+    }
+    const outputs = this.spec.outputs ?? collectLegendSeries(this.spec)
+      .filter(entry => entry.series.showHoverValue !== false)
+      .flatMap(entry => [
+        { id: entry.id, label: entry.series.label ?? entry.id, values: entry.series.values },
+        ...(entry.series.lowerValues ? [{
+          id: `${entry.id}.lower`, label: `${entry.series.label ?? entry.id} (lower)`, values: entry.series.lowerValues,
+        }] : []),
+      ]);
+    if (!outputs.length) {
+      this.outputsEl.style.display = 'none';
+      return;
+    }
+    const fontSize = titleStyle.fontSize ?? 11;
+    let top = titleStyle.paddingTop ?? 8;
+    const left = titleStyle.paddingLeft ?? 8;
+    const ctx = this.overlayCtx;
+    ctx.save();
+    ctx.font = `${fontSize}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+    let x = left + (!externalLegend && this.spec.title
+      ? ctx.measureText(this.spec.title.toUpperCase()).width + 12 : 0);
+    ctx.restore();
+    if (!externalLegend && this.collapseEl.style.display !== 'none') {
+      const toggle = this.collapseEl.getBoundingClientRect();
+      if (toggle.width > 0) x = Math.max(x, toggle.right - this.el.getBoundingClientRect().left + 8);
+    }
+    let right = this.width - 60;
+    if (!externalLegend && this.legendEl.style.display !== 'none' && this.legendEl.style.right) {
+      right = Math.min(right, this.legendEl.getBoundingClientRect().left - this.el.getBoundingClientRect().left - 8);
+    }
+    if (right - x < 160) {
+      x = left;
+      right = this.width - 60;
+      top += fontSize + 12;
+    }
+    const formatTime = (time: number | undefined) => {
+      const date = new Date(time ?? NaN);
+      return Number.isFinite(date.getTime()) ? date.toISOString() : 'n/a';
+    };
+    const source = this.spec.outputSourceTime
+      ? `  |  source candle: ${formatTime(this.spec.outputSourceTime[index])}` : '';
+    const available = this.spec.outputAvailableAt
+      ? `  |  available after: ${formatTime(this.spec.outputAvailableAt[index])}` : '';
+    const text = `${timestamp}${source}${available}  |  ${outputs.map(output => {
+      const value = output.values[index];
+      return `${output.label}: ${value !== undefined && Number.isFinite(value) ? String(value) : 'n/a'}`;
+    }).join('  |  ')}`;
+    if (this.outputsEl.textContent !== text) this.outputsEl.textContent = text;
+    this.outputsEl.setAttribute('role', 'status');
+    this.outputsEl.setAttribute('aria-label', `Pinned outputs for ${this.spec.title ?? this.spec.id}`);
+    this.outputsEl.tabIndex = 0;
+    this.outputsEl.style.cssText = `display:block;position:absolute;z-index:13;left:${x}px;top:${this.el.offsetTop + top}px;` +
+      `width:${Math.max(0, right - x)}px;max-height:48px;overflow-x:auto;white-space:nowrap;pointer-events:auto;` +
+      `font:${fontSize}px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;font-variant-numeric:tabular-nums;` +
+      `color:${theme.text};background:${theme.bg};`;
   }
 
   /**
@@ -515,6 +603,7 @@ export class Panel {
   destroy() {
     this.collapseEl.remove();
     this.legendEl.remove();
+    this.outputsEl.remove();
     this.el.remove();
   }
 }

@@ -1,5 +1,13 @@
 # @finterion/charts-spec
 
+## 1.5.0
+
+### Minor Changes
+
+- Add donut and boxplot schemas, validation, and compilation.
+- Support raw indicator outputs, source and availability timestamps, and colored reference lines.
+- Update @finterion/charts-core to 1.5.0.
+
 ## 1.4.1
 
 ### Patch Changes

@@ -113,7 +113,114 @@ function panel() {
   return { value, ctx };
 }
 
+describe('Panel sparse indicator autoscaling', () => {
+  function sampledPanel() {
+    const { value } = panel();
+    value.manualYRange = null;
+    value.yScale = 1;
+    value.spec.indicator = {
+      kind: 'line', color: '#fff',
+      values: new Float32Array([10, NaN, 20]), sampleMask: new Float32Array([1, 0, 1]),
+    };
+    value.spec.overlays = [];
+    return value;
+  }
+
+  it('includes surrounding observations when zoomed between sparse samples', () => {
+    const value = sampledPanel();
+    value.computeRange(null, { startIdx: 1, endIdx: 1 });
+    expect([value.yMin, value.yMax]).toEqual([9, 21]);
+  });
+
+  it('keeps reference levels visible when autoscaling a narrow Z-score range', () => {
+    const value = sampledPanel();
+    delete value.spec.indicator!.sampleMask;
+    value.spec.indicator!.values = new Float32Array([-0.5, 0, 0.5]);
+    value.spec.indicator!.refLines = [-2, 0, 2];
+    value.computeRange(null, { startIdx: 1, endIdx: 1 });
+    expect([value.yMin, value.yMax]).toEqual([-2.4, 2.4]);
+    value.spec.indicator!.values = new Float32Array([-3, 0, 4]);
+    value.computeRange(null, { startIdx: 0, endIdx: 2 });
+    expect(value.yMin).toBeCloseTo(-3.7);
+    expect(value.yMax).toBeCloseTo(4.7);
+  });
+
+  it('includes visible sparse overlays even when the primary series has a recorded gap', () => {
+    const value = sampledPanel();
+    value.spec.indicator!.values.fill(NaN);
+    value.spec.overlays = [{ kind: 'line', color: '#fff', values: new Float32Array([100, NaN, 100]),
+      sampleMask: new Float32Array([1, 0, 1]) }];
+    value.computeRange(null, { startIdx: 1, endIdx: 1 });
+    expect(value.yMin).toBeLessThan(100);
+    expect(value.yMax).toBeGreaterThan(100);
+    expect(value.yMin).toBeGreaterThan(0);
+    value.spec.overlays[0]!.hidden = true;
+    value.computeRange(null, { startIdx: 1, endIdx: 1 });
+    expect([value.yMin, value.yMax]).toEqual([-0.1, 1.1]);
+  });
+
+  it('preserves explicit and manual ranges', () => {
+    const value = sampledPanel();
+    value.spec.indicator!.refLines = [-100, 100];
+    value.spec.indicator!.yRange = [0, 50];
+    value.computeRange(null, { startIdx: 1, endIdx: 1 });
+    expect([value.yMin, value.yMax]).toEqual([0, 50]);
+    value.manualYRange = [20, 40];
+    value.computeRange(null, { startIdx: 1, endIdx: 1 });
+    expect([value.yMin, value.yMax]).toEqual([20, 40]);
+  });
+});
+
 describe('Panel hovered indicator values', () => {
+  it('shows raw outputs, including unplotted classifications, without losing precision or filling gaps', () => {
+    const { value } = panel();
+    const output = { style: {}, textContent: '', setAttribute: vi.fn(), tabIndex: -1 };
+    value.outputsEl = output as unknown as HTMLDivElement;
+    value.collapseEl = { style: { display: 'none' } } as HTMLDivElement;
+    value.spec.outputs = [
+      { id: 'raw', label: 'SuperTrend', values: new Float64Array([12345.123456789, NaN]) },
+      { id: 'trend', label: 'Trend classification', values: new Float64Array([0, NaN]) },
+    ];
+    value.spec.kind = 'price';
+    value.syncPinnedOutputs(finterionDark, 0, '2026-01-01T00:00:00.000Z');
+    expect(output.textContent).toBe('2026-01-01T00:00:00.000Z  |  SuperTrend: 12345.123456789  |  Trend classification: 0');
+    expect(output.style).toHaveProperty('cssText', expect.stringContaining('overflow-x:auto'));
+    expect(output.setAttribute).toHaveBeenCalledWith('aria-label', 'Pinned outputs for Z-score (2h)');
+    value.syncPinnedOutputs(finterionDark, 1, 'next');
+    expect(output.textContent).toBe('next  |  SuperTrend: n/a  |  Trend classification: n/a');
+    value.syncPinnedOutputs(finterionDark, -1, '');
+    expect(output.style).toHaveProperty('display', 'none');
+  });
+
+  it('falls back to plotted outputs including hidden series and both band bounds', () => {
+    const { value } = panel();
+    const output = { style: {}, textContent: '', setAttribute: vi.fn() };
+    value.outputsEl = output as unknown as HTMLDivElement;
+    value.collapseEl = { style: { display: 'none' } } as HTMLDivElement;
+    value.spec.overlays![0]!.lowerValues = new Float32Array([1]);
+    value.syncPinnedOutputs(finterionDark, 0, 'time');
+    expect(output.textContent).toContain('Short Z (lower): 1');
+    expect(output.textContent).toContain('Hidden: 99');
+    expect(output.textContent).not.toContain('Threshold');
+    value.collapsed = true;
+    value.syncPinnedOutputs(finterionDark, 0, 'time');
+    expect(output.style).toHaveProperty('display', 'none');
+  });
+
+  it('labels the completed source candle separately from the clicked timestamp and retains missing metadata', () => {
+    const { value } = panel();
+    const output = { style: {}, textContent: '', setAttribute: vi.fn() };
+    value.outputsEl = output as unknown as HTMLDivElement;
+    value.collapseEl = { style: { display: 'none' } } as HTMLDivElement;
+    value.spec.outputSourceTime = new Float64Array([Date.parse('2020-03-09'), NaN]);
+    value.spec.outputAvailableAt = new Float64Array([Date.parse('2020-03-10'), NaN]);
+    value.syncPinnedOutputs(finterionDark, 0, '2020-03-10T19:00:00.000Z');
+    expect(output.textContent).toContain('2020-03-10T19:00:00.000Z  |  source candle: 2020-03-09T00:00:00.000Z');
+    expect(output.textContent).toContain('available after: 2020-03-10T00:00:00.000Z');
+    value.syncPinnedOutputs(finterionDark, 1, 'next');
+    expect(output.textContent).toContain('source candle: n/a  |  available after: n/a');
+  });
+
   it('draws crosshair lines without a floating OHLC tooltip', () => {
     const { value, ctx } = panel();
     value.height = 200;

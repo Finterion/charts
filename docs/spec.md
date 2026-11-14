@@ -121,7 +121,7 @@ import { getChartCapabilities } from '@finterion/charts-spec';
 const caps = getChartCapabilities();
 // {
 //   version: 1,
-//   panelKinds: ['price', 'indicator', 'heatmap', 'hbar', 'histogram', 'scatter'],
+//   panelKinds: ['price', 'indicator', 'heatmap', 'hbar', 'vbar', 'histogram', 'scatter', 'donut', 'boxplot'],
 //   indicatorKinds: ['line', 'histogram', 'area', 'band'],
 //   seriesTypes: ['candles', 'line', 'area'],
 //   formatDirectives: ['pct0', 'pct1', …],
@@ -159,11 +159,40 @@ the long-entry toggle. All types are initially visible.
 Left-toolbar buttons show descriptive tooltips on pointer hover or keyboard focus,
 including the control that restores a hidden toolbar.
 
+**Indicator outputs** is an opt-in click-to-pin mode for time-based indicator
+panes and price panes with overlays. Its scrollable title readout includes the
+clicked timestamp and all supplied outputs, including hidden series. Moving the
+pointer does not update the pin; clicking another candle does. Turning the tool
+off or replacing chart data clears it. Compare mode and output inspection are
+mutually exclusive. Narrow panes place the readout below their title.
+`panels[].outputs` optionally supplies raw `{ id, label, values }` entries;
+`values` accepts an inline array or column reference and preserves full numeric
+precision. Null/non-finite values show `n/a`, never a carried-forward value.
+These entries do not render lines or participate in autoscaling. Without them,
+the tool reads existing series (including hidden series and both band bounds),
+excluding decorations marked `showHoverValue: false`.
+Optional `panels[].outputSourceTime` and `outputAvailableAt` annotate a pinned
+readout with its source candle opening time and availability time (milliseconds).
+Both accept arrays or column references aligned to the OHLC buffer. Null shows
+`n/a`. They do not change rendering or fill values: the host supplies aligned,
+causally sampled outputs. Python panels call these `output_source_time` and
+`output_available_at`.
+
 Line indicators may supply `sampleMask` (an inline array or column reference),
 with one 0 or 1 per value. Zero skips an unobserved timestamp introduced by
 aligning differently sampled series. One retains the recorded value, including
 `null` as a genuine line break. Values and hover readouts are never filled or
 interpolated. The Python builder calls this `sample_mask`.
+Sparsely sampled indicator panes autoscale across all visible series, including
+the surrounding observations that draw a line through a zoomed interval.
+Recorded missing samples remain breaks rather than extending the scale.
+Reference levels are included in automatic indicator scaling. They use
+contrasting dashed horizontal lines, with a solid zero baseline; explicit
+series ranges and manual Y-axis zoom still take precedence.
+Set `refLineColors` to one color per `refLines` value to distinguish thresholds,
+for example `refLines: [-2, 0, 2]` with
+`refLineColors: ["#16a34a", "#64748b", "#dc2626"]`.
+The Python builder uses `ref_lines` and `ref_line_colors`.
 
 **X axis placement** opens a modal popover with a choice of **Bottom of chart**
 or any time-based panel. **Apply** moves the existing interactive axis below

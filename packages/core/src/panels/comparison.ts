@@ -1,5 +1,6 @@
 import { indexAtTime } from '../data/buffer';
 import type { IndicatorSeries, OHLCBuffer, PanelSpec, ThemeTokens } from '../types';
+import { createInspectorResizeHandle } from './inspectorResize';
 
 export interface ComparisonRow {
   label: string;
@@ -51,11 +52,23 @@ const signed = (value: number): string => `${value > 0 ? '+' : ''}${formatValue(
 
 export class ComparisonInspector {
   readonly el = document.createElement('aside');
+  private readonly resize;
 
-  constructor() {
+  constructor(onResize?: () => void) {
     this.el.className = 'finterion-comparison';
     this.el.setAttribute('aria-label', 'Selected point comparison');
     this.el.style.display = 'none';
+    this.resize = createInspectorResizeHandle(this.el, {
+      label: 'Resize point comparison',
+      defaultWidth: '440px',
+      bounds: () => {
+        const available = this.el.parentElement?.getBoundingClientRect().width;
+        const maximum = available === undefined ? 800 : Math.max(0, Math.floor(available - 160));
+        return { minimum: Math.min(220, maximum), maximum };
+      },
+      onResize,
+    });
+    this.resize.handle.className = 'comparison-resize-handle';
   }
 
   render(options: {
@@ -69,8 +82,12 @@ export class ComparisonInspector {
     close: () => void;
   }) {
     const { times, buf, panels, theme } = options;
-    this.el.style.cssText = `display:flex;flex-direction:column;flex:0 1 440px;width:440px;max-width:60%;min-width:0;min-height:0;overflow:auto;box-sizing:border-box;padding:12px;border-left:1px solid ${theme.border};background:${theme.surface};color:${theme.text};font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;`;
-    this.el.replaceChildren();
+    const width = this.el.style.width || '440px';
+    this.el.style.cssText = `display:flex;position:relative;flex-direction:column;flex:0 0 auto;width:${width};max-width:max(0px,calc(100% - 160px));min-width:0;min-height:0;overflow:hidden;box-sizing:border-box;border-left:1px solid ${theme.border};background:${theme.surface};color:${theme.text};font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;`;
+    const content = document.createElement('div');
+    content.style.cssText = 'flex:1 1 0;min-width:0;min-height:0;overflow:auto;padding:12px;box-sizing:border-box;';
+    this.el.replaceChildren(content, this.resize.handle);
+    this.resize.updateValues();
     const style = document.createElement('style');
     style.textContent = `
       .finterion-comparison button { cursor:pointer;font:inherit;color:inherit;background:transparent;border:1px solid ${theme.border};border-radius:4px;padding:3px 7px; }
@@ -78,11 +95,18 @@ export class ComparisonInspector {
       .finterion-comparison table { border-collapse:collapse;white-space:nowrap;font:inherit;font-variant-numeric:tabular-nums; }
       .finterion-comparison th,.finterion-comparison td { padding:8px;text-align:right;border-bottom:1px solid ${theme.border}; }
       .finterion-comparison th:first-child { text-align:left;position:sticky;left:0;background:${theme.surface};z-index:1; }
+      .finterion-comparison .comparison-resize-handle {
+        position:absolute;left:0;top:0;bottom:0;width:7px;z-index:2;
+        cursor:col-resize;touch-action:none;user-select:none;
+      }
+      .finterion-comparison .comparison-resize-handle:hover,
+      .finterion-comparison .comparison-resize-handle:focus-visible { background:${theme.accent}; }
+      .finterion-comparison .comparison-resize-handle:focus-visible { outline:2px solid ${theme.accent};outline-offset:-2px; }
     `;
     this.el.appendChild(style);
-    const text = (tag: string, content: string, parent: HTMLElement = this.el) => {
+    const text = (tag: string, value: string, parent: HTMLElement = content) => {
       const el = document.createElement(tag);
-      el.textContent = content;
+      el.textContent = value;
       parent.appendChild(el);
       return el;
     };

@@ -7,6 +7,10 @@ import { Panel } from './panel';
 import { Chart } from './chart';
 import { DecisionIndex } from './decisions';
 import type { DecisionAnnotation } from '../types';
+import { captureChartImage, copyChartImage } from './capture';
+import { resolveTheme } from '../themes';
+
+vi.mock('./capture', () => ({ captureChartImage: vi.fn(), copyChartImage: vi.fn() }));
 
 vi.mock('../interactions/panZoom', () => ({
   attachPanZoom: vi.fn(() => () => {}),
@@ -32,6 +36,7 @@ function chartForHover(width: number, viewport: Viewport): Chart {
   chart['panels'] = ['z', 'lower'].map((id, i) => ({
     width, height: 200, headerHeight: 20, yMin: -4, yMax: 0,
     yScale: 1, manualYRange: null,
+    syncPinnedOutputs: vi.fn(),
     spec: { id, kind: 'indicator', weight: 1 }, el: element(width, 20 + i * 200, 200),
   } as Panel));
   chart['interactive'] = true;
@@ -40,11 +45,63 @@ function chartForHover(width: number, viewport: Viewport): Chart {
   })));
   chart['viewport'] = viewport;
   chart['comparisonTimes'] = [];
+  chart['zoomOutButton'] = { disabled: true } as HTMLButtonElement;
   chart['markDirty'] = vi.fn();
   return chart;
 }
 
 describe('Chart pointer coordinates', () => {
+  it('pins outputs only on clicks, keeps them through hover/leave, and clears when the mode is turned off', () => {
+    const chart = chartForHover(1000, { startIdx: 0, endIdx: 999 });
+    chart['outputButton'] = { setAttribute: vi.fn() } as unknown as HTMLButtonElement;
+    chart.setOutputInspection(true);
+    chart['interactive'] = false;
+    chart['attachEvents']();
+    const calls = vi.mocked(chart['eventSurface'].addEventListener).mock.calls;
+    const fire = (type: string, x: number, y = 70) => {
+      for (const [event, listener] of calls) if (event === type) {
+        (listener as (e: unknown) => void)({ clientX: x, clientY: y });
+      }
+    };
+    fire('pointerdown', 200);
+    expect(chart['pinnedOutput']).toBeNull();
+    fire('click', 200);
+    expect(chart['pinnedOutput']).toEqual({ panelId: 'z', index: 100 });
+    fire('pointermove', 300);
+    fire('pointerleave', 300);
+    expect(chart['pinnedOutput']).toEqual({ panelId: 'z', index: 100 });
+    fire('pointerdown', 400, 270);
+    fire('click', 400, 270);
+    expect(chart['pinnedOutput']).toEqual({ panelId: 'lower', index: 300 });
+    fire('pointerdown', 500);
+    fire('pointermove', 600);
+    fire('click', 600);
+    expect(chart['pinnedOutput']).toEqual({ panelId: 'lower', index: 300 });
+    fire('pointerdown', 500);
+    fire('pointercancel', 500);
+    fire('click', 500);
+    expect(chart['pinnedOutput']).toEqual({ panelId: 'lower', index: 300 });
+    chart.setOutputInspection(false);
+    expect(chart['pinnedOutput']).toBeNull();
+    expect(chart['outputButton'].setAttribute).toHaveBeenLastCalledWith('aria-pressed', 'false');
+  });
+
+  it('does not pin outputs on padded bars, axes, headers, gaps, or collapsed/non-time panels', () => {
+    const chart = chartForHover(1000, { startIdx: -100, endIdx: 1099 });
+    chart['pinnedOutput'] = null;
+    for (const [clientX, clientY] of [[101, 70], [1040, 70], [1070, 70], [600, 25]]) {
+      chart['pinOutputs']({ clientX: clientX!, clientY: clientY! });
+    }
+    chart['panels'][1]!.el = element(1000, 248, 200);
+    chart['pinOutputs']({ clientX: 600, clientY: 230 });
+    chart['panels'][1]!.collapsed = true;
+    chart['pinOutputs']({ clientX: 600, clientY: 300 });
+    chart['panels'][1]!.collapsed = false;
+    chart['panels'][1]!.spec.kind = 'scatter';
+    chart['pinOutputs']({ clientX: 600, clientY: 300 });
+    expect(chart['pinnedOutput']).toBeNull();
+  });
+
   function interactiveChart() {
     const chart = chartForHover(1000, { startIdx: 100, endIdx: 299 });
     chart['rightAxis'] = element(56);
@@ -126,6 +183,7 @@ describe('Chart pointer coordinates', () => {
     panel.collapsed = true;
     panel.yScale = 0.5;
     panel.manualYRange = [-3, -1];
+    chart['pinnedOutput'] = { panelId: panel.spec.id, index: 100 };
     for (const value of chart['panels']) value.destroy = vi.fn();
     Object.assign(chart['panelsContainer'], { appendChild: vi.fn() });
     chart['placeTimeAxis'] = vi.fn();
@@ -144,10 +202,12 @@ describe('Chart pointer coordinates', () => {
       expect(chart['panels'][0]!.yScale).toBe(0.5);
       expect(chart['panels'][0]!.manualYRange).toEqual([-3, -1]);
       expect(chart['panels'][0]!.collapsed).toBe(true);
+      expect(chart['pinnedOutput']).toEqual({ panelId: panel.spec.id, index: 100 });
       chart.setPanels([{ id: 'new', kind: 'price', weight: 1 }]);
       expect(chart['panels'][0]!.manualYRange).toBeNull();
       expect(chart['panels'][0]!.yScale).toBe(1);
       expect(chart['panels'][0]!.collapsed).toBe(false);
+      expect(chart['pinnedOutput']).toBeNull();
     } finally {
       vi.unstubAllGlobals();
     }
@@ -243,6 +303,8 @@ describe('Chart pointer coordinates', () => {
     disabled = false;
     open = false;
     id = '';
+    href = '';
+    download = '';
     getBoundingClientRect = () => ({ left: 0, right: 1000, top: 0, height: 600, bottom: 600 });
     focus = vi.fn();
     remove = vi.fn();
@@ -263,10 +325,16 @@ describe('Chart pointer coordinates', () => {
   }
 
   describe('Chart display controls', () => {
-    afterEach(() => vi.unstubAllGlobals());
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+      vi.useRealTimers();
+    });
 
-    function controls() {
+    function controls(interactive = true, data = true) {
       const chart = chartForHover(1000, { startIdx: 0, endIdx: 999 });
+      chart['interactive'] = interactive;
+      if (!data) chart['buf'] = null;
       const doc = {
         createElement: () => new ControlElement(),
         fullscreenElement: null as ControlElement | null, fullscreenEnabled: true,
@@ -300,6 +368,157 @@ describe('Chart pointer coordinates', () => {
       return { chart, toolbar, frame, doc, setDecisions };
     }
 
+    it('flushes current rendering and exposes a PNG Blob without downloading or changing selections', async () => {
+      const { chart } = controls();
+      chart['chartScrollContainer'] = element(1000);
+      chart['effectiveTheme'] = resolveTheme('finterion-dark');
+      chart['dpr'] = 2;
+      chart['draw'] = vi.fn();
+      chart['pinnedOutput'] = { panelId: 'z', index: 100 };
+      const blob = new Blob(['png'], { type: 'image/png' });
+      vi.mocked(captureChartImage).mockResolvedValueOnce(blob);
+      expect(await chart.captureImage()).toBe(blob);
+      expect(chart['draw']).toHaveBeenCalledOnce();
+      expect(captureChartImage).toHaveBeenLastCalledWith(chart['chartScrollContainer'], chart['effectiveTheme'].bg, 2);
+      expect(chart['pinnedOutput']).toEqual({ panelId: 'z', index: 100 });
+      expect(chart.getViewport()).toEqual({ startIdx: 0, endIdx: 999 });
+      chart['panels'] = [];
+      await expect(chart.captureImage()).rejects.toThrow('Add chart panels');
+    });
+
+    it('downloads a PNG, blocks duplicate captures, and releases the download URL', async () => {
+      vi.useFakeTimers();
+      const { chart, frame } = controls(false);
+      let complete!: (blob: Blob) => void;
+      const capture = vi.spyOn(chart, 'captureImage').mockImplementation(() => new Promise(resolve => { complete = resolve; }));
+      const createUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:chart-png');
+      const revokeUrl = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+      const button = chart['captureButton'] as unknown as ControlElement;
+      expect(button.disabled).toBe(false);
+      const pending = chart['exportCapture']('download');
+      expect(button.disabled).toBe(true);
+      expect(button.attributes.get('aria-busy')).toBe('true');
+      await chart['exportCapture']('download');
+      expect(capture).toHaveBeenCalledOnce();
+      const blob = new Blob(['png'], { type: 'image/png' });
+      complete(blob);
+      await pending;
+      expect(createUrl).toHaveBeenCalledWith(blob);
+      const link = frame.children.find(child => child.download === 'finterion-chart.png')!;
+      expect(link.href).toBe('blob:chart-png');
+      expect(link.remove).toHaveBeenCalledOnce();
+      expect(button.disabled).toBe(false);
+      expect(button.attributes.has('aria-busy')).toBe(false);
+      expect(chart['captureStatus'].textContent).toContain('download requested');
+      expect(revokeUrl).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1000);
+      expect(revokeUrl).toHaveBeenCalledWith('blob:chart-png');
+    });
+
+    it('reports capture errors and leaves the button usable for retry', async () => {
+      const { chart } = controls();
+      const capture = vi.spyOn(chart, 'captureImage').mockRejectedValue(new Error('PNG encoding denied'));
+      const button = chart['captureButton'] as unknown as ControlElement;
+      await chart['exportCapture']('download');
+      const status = chart['captureStatus'] as unknown as ControlElement;
+      expect(status.attributes.get('role')).toBe('alert');
+      expect(status.textContent).toBe('Unable to capture chart: PNG encoding denied');
+      expect(button.disabled).toBe(false);
+      expect(button.attributes.has('aria-busy')).toBe(false);
+      await chart['exportCapture']('download');
+      expect(capture).toHaveBeenCalledTimes(2);
+    });
+
+    it('releases the PNG URL even if the download link cannot be created', async () => {
+      vi.useFakeTimers();
+      const { chart, doc } = controls();
+      vi.spyOn(chart, 'captureImage').mockResolvedValue(new Blob(['png'], { type: 'image/png' }));
+      vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:failed-download');
+      const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+      vi.spyOn(doc, 'createElement').mockImplementationOnce(() => { throw new Error('Download unavailable'); });
+      await chart['exportCapture']('download');
+      expect(chart['captureStatus'].textContent).toContain('Download unavailable');
+      vi.advanceTimersByTime(1000);
+      expect(revoke).toHaveBeenCalledWith('blob:failed-download');
+    });
+
+    it('opens explicit capture choices and cancels without copying or downloading', async () => {
+      const { chart } = controls();
+      const capture = vi.spyOn(chart, 'captureImage');
+      const copy = vi.spyOn(chart, 'copyImage');
+      const button = chart['captureButton'] as unknown as ControlElement;
+      await button.click();
+      const dialog = chart['captureDialog'] as unknown as ControlElement;
+      expect(dialog.open).toBe(true);
+      expect(button.attributes.get('aria-haspopup')).toBe('dialog');
+      expect(button.attributes.get('aria-expanded')).toBe('true');
+      const actions = dialog.children.at(-1)!.children;
+      expect(actions.map(action => action.textContent)).toEqual(['Copy image', 'Download PNG', 'Cancel']);
+      expect(capture).not.toHaveBeenCalled();
+      expect(copy).not.toHaveBeenCalled();
+      await actions[2]!.click();
+      expect(dialog.open).toBe(false);
+      expect(button.attributes.get('aria-expanded')).toBe('false');
+      await button.click();
+      dialog.dispatch('keydown', { key: 'Escape', preventDefault: vi.fn() });
+      expect(dialog.open).toBe(false);
+      expect(copy).not.toHaveBeenCalled();
+    });
+
+    it('copies from the dialog without generating a download URL or file', async () => {
+      const { chart, frame } = controls();
+      const copy = vi.spyOn(chart, 'copyImage').mockResolvedValue();
+      const createUrl = vi.spyOn(URL, 'createObjectURL');
+      await (chart['captureButton'] as unknown as ControlElement).click();
+      const dialog = chart['captureDialog'] as unknown as ControlElement;
+      await dialog.children.at(-1)!.children[0]!.click();
+      expect(copy).toHaveBeenCalledOnce();
+      expect(dialog.open).toBe(false);
+      expect(createUrl).not.toHaveBeenCalled();
+      expect(frame.children.some(child => child.download)).toBe(false);
+      expect(chart['captureStatus'].textContent).toContain('copied to clipboard');
+    });
+
+    it('reports denied clipboard access without automatically downloading instead', async () => {
+      const { chart } = controls();
+      vi.spyOn(chart, 'copyImage').mockRejectedValue(new Error('Clipboard permission denied'));
+      const createUrl = vi.spyOn(URL, 'createObjectURL');
+      await chart['exportCapture']('clipboard');
+      expect(chart['captureStatus'].textContent).toBe('Unable to copy chart image: Clipboard permission denied');
+      expect((chart['captureStatus'] as unknown as ControlElement).attributes.get('role')).toBe('alert');
+      expect(chart['captureButton'].disabled).toBe(false);
+      expect(createUrl).not.toHaveBeenCalled();
+    });
+
+    it('exposes programmatic copying using the same PNG capture', async () => {
+      const { chart } = controls();
+      const capture = vi.spyOn(chart, 'captureImage').mockResolvedValue(new Blob(['png']));
+      vi.mocked(copyChartImage).mockImplementationOnce(async render => { await render(); });
+      await chart.copyImage();
+      expect(copyChartImage).toHaveBeenCalledWith(expect.any(Function));
+      expect(capture).toHaveBeenCalledOnce();
+    });
+
+    it('toggles output inspection from the toolbar and makes it mutually exclusive with Compare', async () => {
+      const { chart } = controls();
+      chart['comparisonInspector'] = { el: { style: {} }, render: vi.fn() } as never;
+      chart['decisionInspector'] = { container: { style: {} } } as never;
+      const outputs = chart['outputButton'] as unknown as ControlElement;
+      const compare = chart['compareButton'] as unknown as ControlElement;
+      await outputs.click();
+      expect(outputs.attributes.get('aria-pressed')).toBe('true');
+      chart['pinnedOutput'] = { panelId: 'z', index: 100 };
+      chart.setViewport({ startIdx: 100, endIdx: 200 });
+      expect(chart['pinnedOutput']).toEqual({ panelId: 'z', index: 100 });
+      await compare.click();
+      expect(outputs.attributes.get('aria-pressed')).toBe('false');
+      expect(chart['pinnedOutput']).toBeNull();
+      expect(compare.attributes.get('aria-pressed')).toBe('true');
+      await outputs.click();
+      expect(compare.attributes.get('aria-pressed')).toBe('false');
+      expect(outputs.attributes.get('aria-pressed')).toBe('true');
+    });
+
     it('filters scaling and protective phases independently across rendering and inspection', () => {
       const { chart, setDecisions } = controls();
       const source = chart['decisions'][0]!;
@@ -323,9 +542,9 @@ describe('Chart pointer coordinates', () => {
     it('filters each decision type consistently from rendering, hit testing and inspector choices', async () => {
       const { chart, toolbar, setDecisions } = controls();
       expect(toolbar.children.map(c => c.attributes.get('aria-label'))).toEqual([
-        'X axis placement', 'Compare points', 'Panel visibility', 'Enter fullscreen', 'Hide toolbar',
+        'X axis placement', 'Compare points', 'Panel visibility', 'Enter fullscreen', 'Zoom out to all data', 'Indicator outputs', 'Capture chart', 'Hide toolbar',
       ]);
-      expect(toolbar.children.map(c => c.attributes.get('aria-pressed'))).toEqual([undefined, 'false', undefined, 'false', undefined]);
+      expect(toolbar.children.map(c => c.attributes.get('aria-pressed'))).toEqual([undefined, 'false', undefined, 'false', undefined, 'false', undefined, undefined]);
       for (let i = 0; i < 5; i++) {
         chart['panels'][0]!.legendControls[i]!.onToggle();
         chart['syncDecisionLegend']();
@@ -434,7 +653,7 @@ describe('Chart pointer coordinates', () => {
       chart['timeAxisPanelId'] = 'lower';
       chart['comparisonTimes'] = [100, 200];
       const showButton = chart['showToolbarButton'] as unknown as ControlElement;
-      await toolbar.children[4]!.click();
+      await toolbar.children[7]!.click();
       expect(toolbar.style.display).toBe('none');
       expect(showButton.style.display).toBe('flex');
       expect(showButton.attributes.get('aria-expanded')).toBe('false');
@@ -442,12 +661,63 @@ describe('Chart pointer coordinates', () => {
       await showButton.click();
       expect(toolbar.style.display).toBe('flex');
       expect(showButton.style.display).toBe('none');
-      expect(toolbar.children[4]!.attributes.get('aria-expanded')).toBe('true');
+      expect(toolbar.children[7]!.attributes.get('aria-expanded')).toBe('true');
       expect(toolbar.children[0]!.focus).toHaveBeenCalledOnce();
       expect(chart['comparing']).toBe(true);
       expect(chart['timeAxisPanelId']).toBe('lower');
       expect(chart['comparisonTimes']).toEqual([100, 200]);
       expect(chart['requestResize']).toHaveBeenCalledTimes(2);
+    });
+
+    it('zooms out to all loaded history and autoscales every panel without changing selections', async () => {
+      const { chart, toolbar } = controls();
+      chart.setViewport({ startIdx: 300, endIdx: 399 });
+      chart['initialYScale'] = 2;
+      chart['panels'].forEach(panel => {
+        panel.yScale = 0.5;
+        panel.manualYRange = [-3, -2];
+      });
+      chart['panels'][1]!.collapsed = true;
+      chart['comparisonTimes'] = [100, 200];
+      chart['comparing'] = true;
+      chart['timeAxisPanelId'] = 'lower';
+      const hiddenTypes = new Set(chart['hiddenDecisionTypes']);
+      await toolbar.children[4]!.click();
+      expect(chart.getViewport()).toEqual({ startIdx: 0, endIdx: 999 });
+      expect(chart['panels'].map(panel => panel.yScale)).toEqual([1, 1]);
+      expect(chart['panels'].map(panel => panel.manualYRange)).toEqual([null, null]);
+      expect(chart['initialYScale']).toBeNull();
+      expect(chart['panels'][1]!.collapsed).toBe(true);
+      expect(chart['comparisonTimes']).toEqual([100, 200]);
+      expect(chart['comparing']).toBe(true);
+      expect(chart['timeAxisPanelId']).toBe('lower');
+      expect(chart['hiddenDecisionTypes']).toEqual(hiddenTypes);
+      expect(chart['markDirty']).toHaveBeenLastCalledWith('base', 'series', 'overlay');
+      await toolbar.children[4]!.click();
+      expect(chart.getViewport()).toEqual({ startIdx: 0, endIdx: 999 });
+    });
+
+    it('disables full zoom-out before data is loaded and enables it on data updates', async () => {
+      const { chart, toolbar } = controls(true, false);
+      expect(toolbar.children[4]!.disabled).toBe(true);
+      await toolbar.children[4]!.click();
+      expect(chart.getViewport()).toEqual({ startIdx: 0, endIdx: 999 });
+      chart['refreshDecisionIndex'] = vi.fn();
+      chart['renderComparison'] = vi.fn();
+      chart.setData(createBuffer([{ time: 100, open: 1, high: 1, low: 1, close: 1 }]));
+      expect(toolbar.children[4]!.disabled).toBe(false);
+      await toolbar.children[4]!.click();
+      expect(chart.getViewport()).toEqual({ startIdx: 0, endIdx: 0 });
+    });
+
+    it('does not zoom static charts with interactions disabled', async () => {
+      const { chart, toolbar } = controls(false);
+      chart.setViewport({ startIdx: 300, endIdx: 399 });
+      chart['panels'][0]!.yScale = 0.5;
+      expect(toolbar.children[4]!.disabled).toBe(true);
+      await toolbar.children[4]!.click();
+      expect(chart.getViewport()).toEqual({ startIdx: 300, endIdx: 399 });
+      expect(chart['panels'][0]!.yScale).toBe(0.5);
     });
 
     it('toggles comparison and restores the decision inspector without clearing points', async () => {
@@ -725,6 +995,7 @@ describe('Chart pointer coordinates', () => {
   it('keeps selected timestamps on data updates and discards only removed timestamps', () => {
     const chart = chartForHover(1000, { startIdx: 0, endIdx: 999 });
     chart['comparisonTimes'] = [30, 10, 20];
+    chart['pinnedOutput'] = { panelId: 'z', index: 30 };
     chart['refreshDecisionIndex'] = vi.fn();
     chart['renderComparison'] = vi.fn();
     chart.setData(createBuffer([20, 30, 40].map(time => ({
@@ -732,6 +1003,7 @@ describe('Chart pointer coordinates', () => {
     }))));
     expect(chart['comparisonTimes']).toEqual([30, 20]);
     expect(chart['renderComparison']).toHaveBeenCalled();
+    expect(chart['pinnedOutput']).toBeNull();
   });
 
   it('draws numbered selected-point guides across all time panels', () => {

@@ -5,7 +5,8 @@ how it renders. There are two families:
 
 - **Time-indexed** panels (`price`, `indicator`) share the chart's OHLC viewport
   and the bottom time axis. They draw nothing until `data.bars` is provided.
-- **Self-contained** panels (`heatmap`, `hbar`, `histogram`, `scatter`) ignore
+- **Self-contained** panels (`heatmap`, `hbar`, `vbar`, `histogram`, `scatter`,
+  `donut`, `boxplot`) ignore
   the time axis and render purely from their own data. A chart that contains
   *only* self-contained panels hides the bottom time axis automatically.
 
@@ -153,6 +154,57 @@ factor exposures, and anything else two-dimensional.
 ```
 
 ---
+
+## `donut`
+
+Categorical non-negative totals, such as trade counts per asset. Empty or
+all-zero data renders a neutral ring and a zero total.
+
+```ts
+{
+  id: 'assets', kind: 'donut', weight: 1, title: 'Trades by asset',
+  donut: {
+    categories: ['BTC', 'ETH'],
+    values: [80, 30],
+    colors: ['#f7931a', '#627eea'],
+    innerRadius: 0.55,
+    centerLabel: 'TRADES',
+    showTotal: true,
+  },
+}
+```
+
+`innerRadius` must be strictly between 0 and 1. `colors`, when supplied,
+must contain one non-empty color per category. `format` is a callback in
+core or a format directive in JSON specs. JSON specs place the fields directly
+on the panel, without the nested `donut` object.
+
+## `boxplot`
+
+One numeric distribution per category, with min/max whiskers and observed-order
+quartiles. After sorting `n` observations, Q1, median and Q3 select indices
+`floor(n * 0.25)`, `floor(n * 0.5)` and `floor(n * 0.75)`; they do not
+interpolate or use Tukey outlier fences. Input arrays are not mutated.
+
+```ts
+{
+  id: 'returns', kind: 'boxplot', weight: 1, title: 'Window returns',
+  boxplot: {
+    categories: ['Vector', 'Event'],
+    values: [[0.10, -0.04, 0.08], [0.09, -0.03, 0.07]],
+    colors: ['#22d3ee', '#a78bfa'],
+    showPoints: true,
+    format: (v) => `${(v * 100).toFixed(1)}%`,
+  },
+}
+```
+
+Empty categories remain labelled; singleton and constant distributions render
+without division by zero. `showPoints` defaults to false; enabled points use
+deterministic jitter so redraws do not move them. Values must be finite, and
+both `values` and optional `colors` must match the category count. In JSON,
+put these fields directly on the panel and use a directive such as `pct1`
+instead of a formatter callback.
 
 ## Mixing kinds
 

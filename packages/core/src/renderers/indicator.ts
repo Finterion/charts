@@ -15,11 +15,15 @@ function dashPattern(style: LineStyle | undefined, lineWidth: number): number[] 
   }
 }
 
-export function indicatorExtrema(values: Float32Array, startIdx: number, endIdx: number, lowerValues?: Float32Array): [number, number] {
+export function indicatorExtrema(values: Float32Array, startIdx: number, endIdx: number, lowerValues?: Float32Array, sampleMask?: Float32Array): [number, number] {
   let min = Infinity;
   let max = -Infinity;
-  const s = Math.max(0, startIdx);
-  const e = Math.min(values.length - 1, endIdx);
+  let s = Math.max(0, startIdx);
+  let e = Math.min(values.length - 1, endIdx);
+  if (sampleMask) {
+    while (s > 0 && sampleMask[s] === 0) s--;
+    while (e < values.length - 1 && sampleMask[e] === 0) e++;
+  }
   for (let i = s; i <= e; i++) {
     const v = values[i]!;
     if (Number.isFinite(v)) {
@@ -34,7 +38,6 @@ export function indicatorExtrema(values: Float32Array, startIdx: number, endIdx:
       }
     }
   }
-  if (!Number.isFinite(min)) return [0, 1];
   return [min, max];
 }
 
@@ -45,10 +48,10 @@ export function renderIndicator(layout: PanelLayout, series: IndicatorSeries) {
 
   if (series.refLines) {
     ctx.save();
-    ctx.strokeStyle = theme.border;
-    ctx.setLineDash([3, 3]);
-    ctx.lineWidth = 1;
-    for (const v of series.refLines) {
+    ctx.lineWidth = 1.5;
+    for (const [index, v] of series.refLines.entries()) {
+      ctx.strokeStyle = series.refLineColors?.[index] ?? theme.textDim;
+      ctx.setLineDash(v === 0 ? [] : [5, 4]);
       const y = yPos(v, yMin, yMax, height);
       ctx.beginPath();
       ctx.moveTo(0, y);

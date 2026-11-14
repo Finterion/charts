@@ -241,6 +241,7 @@ export const CHART_SPEC_SCHEMA = {
         colorNegative: { $ref: '#/$defs/color' },
         lowerValues: { $ref: '#/$defs/valuesRef' },
         refLines: { type: 'array', items: { type: 'number' } },
+        refLineColors: { type: 'array', items: { $ref: '#/$defs/color' } },
         yRange: {
           type: 'array',
           items: { type: 'number' },
@@ -264,10 +265,63 @@ export const CHART_SPEC_SCHEMA = {
         title: { type: 'string' },
         titleColor: { $ref: '#/$defs/color' },
         collapsible: { type: 'boolean' },
+        outputSourceTime: { $ref: '#/$defs/valuesRef' },
+        outputAvailableAt: { $ref: '#/$defs/valuesRef' },
+        outputs: {
+          type: 'array',
+          items: {
+            type: 'object',
+            required: ['id', 'label', 'values'],
+            additionalProperties: false,
+            properties: {
+              id: { type: 'string', minLength: 1 },
+              label: { type: 'string' },
+              values: { $ref: '#/$defs/valuesRef' },
+            },
+          },
+        },
       },
     },
     panel: {
       oneOf: [
+        // donut
+        {
+          allOf: [
+            { $ref: '#/$defs/panelBase' },
+            {
+              type: 'object',
+              required: ['kind', 'categories', 'values'],
+              properties: {
+                kind: { const: 'donut' },
+                categories: { type: 'array', items: { type: 'string' } },
+                values: { type: 'array', items: { type: 'number', minimum: 0 } },
+                colors: { type: 'array', items: { type: 'string', minLength: 1 } },
+                innerRadius: { type: 'number', exclusiveMinimum: 0, exclusiveMaximum: 1, default: 0.55 },
+                centerLabel: { type: 'string', default: 'TRADES' },
+                showTotal: { type: 'boolean', default: true },
+                format: { $ref: '#/$defs/formatDirective' },
+              },
+            },
+          ],
+        },
+        // boxplot
+        {
+          allOf: [
+            { $ref: '#/$defs/panelBase' },
+            {
+              type: 'object',
+              required: ['kind', 'categories', 'values'],
+              properties: {
+                kind: { const: 'boxplot' },
+                categories: { type: 'array', items: { type: 'string' } },
+                values: { type: 'array', items: { type: 'array', items: { type: 'number' } } },
+                colors: { type: 'array', items: { type: 'string', minLength: 1 } },
+                showPoints: { type: 'boolean', default: false },
+                format: { $ref: '#/$defs/formatDirective' },
+              },
+            },
+          ],
+        },
         // price
         {
           allOf: [

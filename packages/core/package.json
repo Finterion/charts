@@ -1,6 +1,6 @@
 {
   "name": "@finterion/charts-core",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "description": "Framework-agnostic charting engine — Canvas 2D, typed-array buffers, layered renderers.",
   "keywords": [
     "chart",
@@ -38,6 +38,9 @@
     "README.md"
   ],
   "sideEffects": false,
+  "dependencies": {
+    "html2canvas": "^1.4.1"
+  },
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",

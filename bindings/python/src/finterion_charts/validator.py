@@ -21,7 +21,54 @@ from typing import Any
 
 from .schema import CHART_SPEC_SCHEMA
 
-_PANEL_KINDS = ("price", "indicator", "heatmap", "hbar", "vbar", "histogram", "scatter")
+_PANEL_KINDS = ("price", "indicator", "heatmap", "hbar", "vbar", "histogram", "scatter", "donut", "boxplot")
+
+
+def _distribution_errors(kind: str, data: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    categories = data.get("categories")
+    values = data.get("values")
+    if not isinstance(categories, list) or not all(isinstance(v, str) for v in categories):
+        errors.append("categories must be an array of strings")
+    if not isinstance(values, list):
+        errors.append("values must be an array")
+    else:
+        if isinstance(categories, list) and len(categories) != len(values):
+            errors.append("values must have one entry per category")
+        def finite(v: Any) -> bool:
+            return isinstance(v, (int, float)) and not isinstance(v, bool) and isfinite(v)
+        if kind == "donut":
+            if not all(finite(v) and v >= 0 for v in values):
+                errors.append("donut values must be finite non-negative numbers")
+            elif not isfinite(sum(values)):
+                errors.append("donut total must be finite")
+        elif not all(isinstance(v, list) and all(finite(n) for n in v) for v in values):
+            errors.append("boxplot values must be arrays of finite numbers")
+    if "colors" in data:
+        colors = data["colors"]
+        if (
+            not isinstance(colors, list) or not isinstance(categories, list)
+            or len(colors) != len(categories)
+            or not all(isinstance(v, str) and v.strip() for v in colors)
+        ):
+            errors.append("colors must contain one non-empty color per category")
+    if kind == "donut":
+        radius = data.get("innerRadius", 0.55)
+        if (
+            not isinstance(radius, (int, float)) or isinstance(radius, bool)
+            or not isfinite(radius) or not 0 < radius < 1
+        ):
+            errors.append("innerRadius must be strictly between 0 and 1")
+        if "centerLabel" in data and not isinstance(data["centerLabel"], str):
+            errors.append("centerLabel must be a string")
+        flag = "showTotal"
+    else:
+        flag = "showPoints"
+    if flag in data and not isinstance(data[flag], bool):
+        errors.append(f"{flag} must be a boolean")
+    if "format" in data and data["format"] not in CHART_SPEC_SCHEMA["$defs"]["formatDirective"]["enum"]:
+        errors.append("format is invalid")
+    return errors
 
 
 def _decision_errors(value: Any, schema: dict[str, Any], path: str) -> list[str]:
@@ -125,6 +172,8 @@ def validate_spec(spec: Any) -> ValidationResult:
             errors.append(f"panels[{i}].weight must be a positive number")
         if "collapsible" in p and not isinstance(p["collapsible"], bool):
             errors.append(f"panels[{i}].collapsible must be a boolean")
+        if kind in ("donut", "boxplot"):
+            errors.extend(f"panels[{i}].{error}" for error in _distribution_errors(kind, p))
 
     has_time_panel = any(
         isinstance(p, dict) and p.get("kind") in ("price", "indicator")

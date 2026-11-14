@@ -10,6 +10,7 @@ export type {
   DecisionGroup,
   IndicatorKind,
   IndicatorSeries,
+  IndicatorOutput,
   LineStyle,
   PanelKind,
   PanelSpec,
@@ -19,11 +20,14 @@ export type {
   VBarData,
   HistogramData,
   ScatterData,
+  DonutData,
+  BoxplotData,
   BrandingOptions,
 } from './types';
 
 export { Chart, createChart } from './panels/chart';
 export { validateDecisions } from './panels/decisions';
+export { validateDistributionData } from './data/distributions';
 export { createBuffer, appendBar, indexAtTime, alignByDuration } from './data/buffer';
 export type { DurationSeriesInput, AlignByDurationOptions, AlignByDurationResult } from './data/buffer';
 export { ema, rsi, drawdown } from './data/indicators';

@@ -8,7 +8,7 @@ It ships in three layers, each usable on its own:
 
 | Package | What you get |
 | --- | --- |
-| [`@finterion/charts-core`](packages/core) | Framework-agnostic Canvas engine. Multi-panel, pan/zoom, indicators, markers, six panel kinds. |
+| [`@finterion/charts-core`](packages/core) | Framework-agnostic Canvas engine. Multi-panel, pan/zoom, indicators, markers, nine panel kinds including donut and box plots. |
 | [`@finterion/charts-react`](packages/react) | `<Chart>` and `<ChartFromSpec>` React bindings. |
 | [`@finterion/charts-spec`](packages/spec) | JSON-only `ChartSpec` schema + validator + compiler. Designed for LLM tool-calling and forum embeds. |
 
@@ -51,7 +51,12 @@ Trade markers also accept `shape: 'plus'` and `shape: 'minus'`.
 
 The left-hand vertical toolbar contains **X axis placement**, **Compare points**,
 **Panel visibility**, and **Enter fullscreen**
-icon buttons. Hover a button for its tooltip; active tools are highlighted.
+icon buttons, plus **Zoom out to all data**, **Indicator outputs**, and **Capture chart**. The zoom-out button shows the full
+loaded history across every synchronized panel and resets their vertical zoom
+to fit the data, including any box-selected ranges. Panel visibility, comparison
+points, and selected tools are preserved. It is disabled until data is loaded
+and on charts with `interactive: false`.
+Hover a button for its tooltip; active tools are highlighted.
 Use Tab to focus the tools and Up/Down arrows to move between them.
 Use **Hide toolbar** at the bottom of the sidebar to reclaim the chart space;
 the small **Show toolbar** tab on the left edge brings it back. Hiding the
@@ -69,12 +74,64 @@ using the browser Fullscreen API. Use **Exit fullscreen** or Escape to return.
 The host page must permit fullscreen for embedded charts; if the browser or
 notebook host denies it, the chart displays an explanation without losing state.
 
+**Capture chart** opens a choice of **Copy image** or **Download PNG**.
+Copy image places the PNG on the clipboard without saving a file; nothing is
+downloaded automatically. It requires a secure context (HTTPS or localhost),
+image-clipboard support, and browser/host permission. A denied or unsupported
+clipboard operation shows an error and never silently downloads instead.
+Download PNG saves `finterion-chart.png` with the current chart-area
+viewport, at the display's pixel ratio. It includes rendered panels, titles,
+axes, legends, visible pinned outputs, markers, and branding, but excludes the
+toolbar, dialogs, and inspectors. Collapsed panels and scroll-clipped content
+remain as displayed; it does not change zoom, visibility, or selections.
+The button is available on non-interactive charts too. Capture and encoding
+failures are shown on the chart; notebook hosts may require download permission.
+Sandboxed inline notebook iframes can block capture or downloads. In that case,
+export to a standalone HTML chart or use the browser's screenshot tools;
+the capture action does not relax the notebook's security sandbox.
+Custom cross-origin branding images require CORS permission.
+For programmatic use, `await chart.captureImage()` returns a PNG `Blob` without
+starting a download; `await chart.copyImage()` copies it to the clipboard.
+Call clipboard copying directly from a user gesture such as a button click.
+The HTML rasterizer is loaded on demand; the Python offline
+embed includes it in its self-contained bundle.
+
+**Indicator outputs** enables click-to-pin inspection. Click a candle in an
+indicator pane (including price panes with indicator overlays) to show its outputs
+beside the title. Another click replaces the selected pane/candle; moving or
+leaving the chart does not change the values. The readout includes its timestamp,
+keeps hidden outputs available, and scrolls horizontally so every value remains
+accessible. On narrow panes it moves below the title. Missing values show `n/a`.
+Turn the tool off to clear. Comparison and output inspection are mutually exclusive;
+pan/zoom and visibility controls retain their normal behavior. Replacing the data
+clears the pin; refreshing matching panel definitions keeps it.
+
+For raw classifications or outputs not drawn as lines, supply `PanelSpec.outputs`
+as `{ id, label, values: Float64Array }` entries aligned to the OHLC buffer.
+Without this field the tool uses plotted indicator series (including hidden
+series and both band bounds, excluding `showHoverValue: false` decorations).
+JSON specs accept inline arrays or column references in `panels[].outputs`;
+Python builders expose `IndicatorOutput` and a keyword-only panel `outputs` list.
+The runtime API also exposes `chart.setOutputInspection(true | false)`.
+Hosts can supply `PanelSpec.outputSourceTime` and `outputAvailableAt` as
+OHLC-aligned `Float64Array` timestamps in milliseconds. These label the pinned
+readout's source candle and availability time separately from the clicked
+chart timestamp. JSON specs accept inline arrays or column references for both;
+Python panels use keyword-only `output_source_time` and `output_available_at`.
+The host is responsible for sampling only completed candles, retaining genuine
+missing values, and keeping these metadata arrays aligned with its output values.
+
 Click **Compare points** in that toolbar, then click timestamps in any
 price or indicator panel. Each click adds a numbered point across the shared
 time panels; clicking a selected timestamp again removes it. The right-hand
 side panel compares OHLCV, indicators, overlays and both bounds of bands,
 including hidden series. Add as many points as needed and scroll the table
 horizontally to compare them.
+Drag the comparison panel's left divider to widen or narrow it. Focus the divider
+and use Left/Right (Shift for larger steps), Home/End for minimum/maximum width,
+or double-click to restore the default. The width is retained when points change
+or the panel is closed and reopened. It can use the available chart width while
+reserving space for the plot; tables wider than the panel still scroll horizontally.
 
 The first selected point is the baseline. Subsequent columns show the value,
 absolute change and percentage change (`100 * (value - baseline) / abs(baseline)`).
@@ -275,7 +332,7 @@ embed apps are `private` and never published.
 ## Documentation
 
 - **[Overview](docs/overview.md)** — architecture, performance model, when to use what.
-- **[Panel kinds](docs/panels.md)** — `price`, `indicator`, `heatmap`, `hbar`, `histogram`, `scatter`.
+- **[Panel kinds](docs/panels.md)** — `price`, `indicator`, `heatmap`, `hbar`, `vbar`, `histogram`, `scatter`, `donut`, `boxplot`.
 - **[ChartSpec](docs/spec.md)** — the JSON schema, format directives, column references.
 - **[LLM prompt template](docs/llm-prompt.md)** — system prompt + worked examples for agents.
 - **[Embedding](docs/embedding.md)** — iframe, postMessage, base64 share links, markdown shortcodes.
